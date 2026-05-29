@@ -1,0 +1,6 @@
+package com.trimline.parcel
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
+
