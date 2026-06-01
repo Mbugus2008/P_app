@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 12,
+      version: 14,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -64,7 +64,12 @@ class DatabaseHelper {
         Date_Delivered TEXT,
         Out_For_Delivery_Time TEXT,
         Date_Returned TEXT,
+        Time_Created TEXT,
+        Time_Sent TEXT,
+        Time_Collected TEXT,
+        Time_Delivered TEXT,
         Description TEXT,
+        Details TEXT,
         Payment_Method TEXT,
         Mpesa_Code TEXT,
         Is_Synced INTEGER DEFAULT 0,
@@ -251,6 +256,29 @@ class DatabaseHelper {
         await db.execute(
           'ALTER TABLE $_usersTableName ADD COLUMN Account_Type TEXT',
         );
+      } catch (_) {
+        // Column may already exist on some installs.
+      }
+    }
+
+    if (oldVersion < 13) {
+      for (final column in const [
+        'Time_Created',
+        'Time_Sent',
+        'Time_Collected',
+        'Time_Delivered',
+      ]) {
+        try {
+          await db.execute('ALTER TABLE $_tableName ADD COLUMN $column TEXT');
+        } catch (_) {
+          // Column may already exist on some installs.
+        }
+      }
+    }
+
+    if (oldVersion < 14) {
+      try {
+        await db.execute('ALTER TABLE $_tableName ADD COLUMN Details TEXT');
       } catch (_) {
         // Column may already exist on some installs.
       }

@@ -1,6 +1,8 @@
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/parcel_model.dart';
 import '../receipts/thermal_receipt_printer.dart';
 import 'printer_selector_dialog.dart';
@@ -24,6 +26,25 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
   bool _isPrinting = false;
   String? _error;
 
+  String _maskPhone(String? value) {
+    final phone = (value ?? '').trim();
+    if (phone.isEmpty) return '-';
+    if (phone.length <= 4) return List.filled(phone.length, '*').join();
+
+    const maskedCount = 4;
+    final available = phone.length - maskedCount;
+    if (available <= 0) return List.filled(phone.length, '*').join();
+
+    final startLen = (available / 2).floor();
+    final endStart = startLen + maskedCount;
+    return '${phone.substring(0, startLen)}${List.filled(maskedCount, '*').join()}${phone.substring(endStart)}';
+  }
+
+  String _partyValue(String? name, String? phone) {
+    final displayName = (name ?? '').trim().isEmpty ? '-' : name!.trim();
+    return '$displayName | ${_maskPhone(phone)}';
+  }
+
   Future<void> _print() async {
     final prefs = await SharedPreferences.getInstance();
     final savedMac = prefs.getString('printer_mac');
@@ -32,11 +53,12 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
       // No saved printer — open selector
       final result = await showDialog<bool>(
         context: context,
-        builder: (ctx) => PrinterSelectorDialog(
-          onPrint: () async {
-            await _printer.printParcelReceipt(widget.parcel);
-          },
-        ),
+        builder:
+            (ctx) => PrinterSelectorDialog(
+              onPrint: () async {
+                await _printer.printParcelReceipt(widget.parcel);
+              },
+            ),
       );
       if (result == true && mounted) {
         Navigator.of(context).pop(true);
@@ -59,11 +81,12 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
           setState(() => _isPrinting = false);
           final result = await showDialog<bool>(
             context: context,
-            builder: (ctx) => PrinterSelectorDialog(
-              onPrint: () async {
-                await _printer.printParcelReceipt(widget.parcel);
-              },
-            ),
+            builder:
+                (ctx) => PrinterSelectorDialog(
+                  onPrint: () async {
+                    await _printer.printParcelReceipt(widget.parcel);
+                  },
+                ),
           );
           if (result == true && mounted) {
             Navigator.of(context).pop(true);
@@ -103,10 +126,7 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
             centerTitle: true,
             automaticallyImplyLeading: false,
             actions: [
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: _skip,
-              ),
+              IconButton(icon: const Icon(Icons.close), onPressed: _skip),
             ],
           ),
           body: Column(
@@ -163,13 +183,16 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: _isPrinting ? null : _print,
-                        icon: _isPrinting
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.print),
+                        icon:
+                            _isPrinting
+                                ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Icon(Icons.print),
                         label: Text(_isPrinting ? 'Printing...' : 'Print'),
                       ),
                     ),
@@ -186,43 +209,94 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
   Widget _buildReceiptPreview(Parcel parcel, ThemeData theme) {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'TRIMLINE PARCEL',
+          'PARCEL CASH RECEIPT',
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w800,
             letterSpacing: 1,
           ),
         ),
+        const SizedBox(height: 2),
+        Text(
+          'REMBO CLASSIC SERVICES LTD',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'For all your quality services & safety',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'KITENGELA BOOKING OFFICE',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          'P.O BOX 482 - 0242 KITENGELA',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        Text(
+          'MOBILE: 0757 718 594',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        Text(
+          'MAIN STAGE, BLOCK B, SHOP NO. 1',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        Text(
+          'MAIN OFFICE MOBILE: 0115 118 735',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        Text(
+          'KULE PLAZA, SUITE NO. 25',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        Text(
+          'OPPOSITE RUBIS KITENGELA',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+        const Divider(),
+        const SizedBox(height: 6),
+        _buildPreviewRow('Doc No:', parcel.Document_No ?? '-', bold: true),
+        _buildPreviewRow(
+          'Date:',
+          DateFormat(
+            'dd/MM/yyyy HH:mm',
+          ).format(parcel.Date_sent ?? DateTime.now()),
+        ),
         const Divider(),
         Text(
-          'PARCEL RECEIPT',
-          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          'KITENGELA => NAIROBI',
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+          textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
-        _buildPreviewRow('Doc No:', parcel.Document_No ?? '-', bold: true),
-        _buildPreviewRow('Date:', parcel.Date_sent?.toString().substring(0, 16) ?? '-'),
+        const SizedBox(height: 6),
+        _buildPartyRow(
+          'SENDER:',
+          _partyValue(parcel.Sender_Name, parcel.Sender_Phone),
+        ),
+        _buildPreviewRow(
+          'RECEIVER:',
+          _partyValue(parcel.Receiver_Name, parcel.Receiver_Phone),
+        ),
         const Divider(),
-        _buildPreviewRow('FROM:', parcel.From ?? '-'),
-        _buildPreviewRow('TO:', parcel.To ?? '-'),
-        const Divider(),
-        Text('SENDER', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
-        _buildPreviewRow('Name:', parcel.Sender_Name ?? '-'),
-        _buildPreviewRow('Phone:', parcel.Sender_Phone ?? '-'),
-        const Divider(),
-        Text('RECEIVER', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
-        _buildPreviewRow('Name:', parcel.Receiver_Name ?? '-'),
-        _buildPreviewRow('Phone:', parcel.Receiver_Phone ?? '-'),
-        const Divider(),
-        if (parcel.parcelDetails.isNotEmpty) ...[
-          Text('ITEMS', style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
-          ...parcel.parcelDetails.map((d) => _buildPreviewRow(
-                d.Description ?? 'Item',
-                'KES ${(d.Amount ?? 0.0).toStringAsFixed(0)}',
-              )),
-          const Divider(),
-        ],
         _buildPreviewRow(
           'PAID:',
           'KES ${(parcel.Amount_Paid ?? 0.0).toStringAsFixed(0)}',
@@ -232,10 +306,15 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
           'METHOD:',
           parcel.paymentMethod == PaymentMethod.mpesa ? 'M-Pesa' : 'Cash',
         ),
-        if (parcel.paymentMethod == PaymentMethod.mpesa && parcel.mpesaCode?.isNotEmpty == true)
+        if (parcel.paymentMethod == PaymentMethod.mpesa &&
+            parcel.mpesaCode?.isNotEmpty == true)
           _buildPreviewRow('MPESA CODE:', parcel.mpesaCode!),
         const Divider(),
-        const Text('Thank you!', style: TextStyle(fontStyle: FontStyle.italic)),
+        const Text(
+          'Thank you!',
+          style: TextStyle(fontStyle: FontStyle.italic),
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }
@@ -261,6 +340,32 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
                 fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
               ),
               textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartyRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 78,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
           ),
         ],

@@ -32,9 +32,14 @@ class Parcel {
   DateTime? Date_Delivered;
   DateTime? Out_For_Delivery_Time;
   DateTime? Date_Returned;
+  DateTime? Time_Created;
+  DateTime? Time_Sent;
+  DateTime? Time_Collected;
+  DateTime? Time_Delivered;
   String? Notes;
   bool isSynced;
   bool receiptPrinted;
+  String? Details = '';
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -61,9 +66,14 @@ class Parcel {
     this.Date_Delivered,
     this.Out_For_Delivery_Time,
     this.Date_Returned,
+    this.Time_Created,
+    this.Time_Sent,
+    this.Time_Collected,
+    this.Time_Delivered,
     this.Notes,
     this.isSynced = false,
     this.receiptPrinted = false,
+    this.Details = '',
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -93,10 +103,15 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Time_Created': Time_Created?.toIso8601String(),
+      'Time_Sent': Time_Sent?.toIso8601String(),
+      'Time_Collected': Time_Collected?.toIso8601String(),
+      'Time_Delivered': Time_Delivered?.toIso8601String(),
       'Notes': Notes,
       'Is_Synced': isSynced,
       'Receipt_Printed': receiptPrinted,
-      'Details': parcelDetails.map((d) => d.toJson()).toList(),
+      'Details': Details,
+      'Parcel_Details': parcelDetails.map((d) => d.toJson()).toList(),
     };
   }
 
@@ -109,7 +124,8 @@ class Parcel {
     }
 
     return Parcel(
-      Document_No: read(['Document_No', 'document_No', 'documentNo']) as String?,
+      Document_No:
+          read(['Document_No', 'document_No', 'documentNo']) as String?,
       Batch_No: read(['Batch_No', 'batch_No', 'batchNo']) as String?,
       Date_sent: _parseDate(read(['Date_sent', 'date_sent', 'dateSent'])),
       Sender_Name:
@@ -156,13 +172,24 @@ class Parcel {
       Date_Returned: _parseDate(
         read(['Date_Returned', 'date_Returned', 'dateReturned']),
       ),
+      Time_Created: _parseDate(
+        read(['Time_Created', 'time_Created', 'timeCreated']),
+      ),
+      Time_Sent: _parseDate(read(['Time_Sent', 'time_Sent', 'timeSent'])),
+      Time_Collected: _parseDate(
+        read(['Time_Collected', 'time_Collected', 'timeCollected']),
+      ),
+      Time_Delivered: _parseDate(
+        read(['Time_Delivered', 'time_Delivered', 'timeDelivered']),
+      ),
       Notes: read(['Notes', 'notes']) as String?,
       isSynced: _parseBool(read(['Is_Synced', 'is_Synced', 'isSynced'])),
       receiptPrinted: _parseBool(
         read(['Receipt_Printed', 'receipt_Printed', 'receiptPrinted']),
       ),
+      Details: read(['Details', 'details']) as String?,
       parcelDetails:
-          (read(['Details', 'details']) as List?)
+          (read(['Parcel_Details', 'parcel_Details', 'parcelDetails']) as List?)
               ?.map(
                 (item) => Parcel_Details.fromJson(item as Map<String, dynamic>),
               )
@@ -196,7 +223,12 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Time_Created': Time_Created?.toIso8601String(),
+      'Time_Sent': Time_Sent?.toIso8601String(),
+      'Time_Collected': Time_Collected?.toIso8601String(),
+      'Time_Delivered': Time_Delivered?.toIso8601String(),
       'Description': Notes,
+      'Details': Details,
       'Is_Synced': (isSynced) ? 1 : 0,
       'Receipt_Printed': (receiptPrinted) ? 1 : 0,
     };
@@ -227,7 +259,12 @@ class Parcel {
       Date_Delivered: _parseDate(map['Date_Delivered']),
       Out_For_Delivery_Time: _parseDate(map['Out_For_Delivery_Time']),
       Date_Returned: _parseDate(map['Date_Returned']),
+      Time_Created: _parseDate(map['Time_Created']),
+      Time_Sent: _parseDate(map['Time_Sent']),
+      Time_Collected: _parseDate(map['Time_Collected']),
+      Time_Delivered: _parseDate(map['Time_Delivered']),
       Notes: map['Description'] as String?,
+      Details: map['Details'] as String?,
       isSynced: (map['Is_Synced'] as int? ?? 0) == 1,
       receiptPrinted: (map['Receipt_Printed'] as int? ?? 0) == 1,
     );
@@ -278,7 +315,12 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Time_Created': Time_Created?.toIso8601String(),
+      'Time_Sent': Time_Sent?.toIso8601String(),
+      'Time_Collected': Time_Collected?.toIso8601String(),
+      'Time_Delivered': Time_Delivered?.toIso8601String(),
       'Notes': Notes,
+      'Details': Details,
     };
   }
 
@@ -319,7 +361,12 @@ class Parcel {
     DateTime? Date_Delivered,
     DateTime? Out_For_Delivery_Time,
     DateTime? Date_Returned,
+    DateTime? Time_Created,
+    DateTime? Time_Sent,
+    DateTime? Time_Collected,
+    DateTime? Time_Delivered,
     String? Notes,
+    String? Details,
     bool? isSynced,
     bool? receiptPrinted,
     List<Parcel_Details>? parcelDetails,
@@ -349,7 +396,12 @@ class Parcel {
       Out_For_Delivery_Time:
           Out_For_Delivery_Time ?? this.Out_For_Delivery_Time,
       Date_Returned: Date_Returned ?? this.Date_Returned,
+      Time_Created: Time_Created ?? this.Time_Created,
+      Time_Sent: Time_Sent ?? this.Time_Sent,
+      Time_Collected: Time_Collected ?? this.Time_Collected,
+      Time_Delivered: Time_Delivered ?? this.Time_Delivered,
       Notes: Notes ?? this.Notes,
+      Details: Details ?? this.Details,
       isSynced: isSynced ?? this.isSynced,
       receiptPrinted: receiptPrinted ?? this.receiptPrinted,
       parcelDetails: parcelDetails ?? this.parcelDetails,

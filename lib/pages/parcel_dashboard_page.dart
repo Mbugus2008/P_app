@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../controllers/parcel_controller.dart';
 import '../database/database_helper.dart';
+import '../dialogs/print_receipt_dialog.dart';
 import '../models/app_vehicle.dart';
 import '../models/batches.dart';
 import '../models/parcel_model.dart';
@@ -99,157 +100,23 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         vehicles
             .where((v) => v.vehicleNumber?.trim().isNotEmpty == true)
             .toList();
-    final hasVehicleList = vehiclesWithNumber.isNotEmpty;
-    final vehicleCtrl = TextEditingController(text: batch.vehicle ?? '');
-    final driverCtrl = TextEditingController(text: batch.driver ?? '');
-    final vehicleText = ValueNotifier<String>(batch.vehicle?.trim() ?? '');
 
-    final confirmed = await showDialog<bool>(
+    final result = await showDialog<_DispatchDialogResult>(
       context: context,
       builder:
-          (ctx) => StatefulBuilder(
-            builder: (ctx, setDialogState) {
-              return AlertDialog(
-                title: const Text('Dispatch Batch'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Batch: ${batch.batchNo ?? '-'}'),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${batch.fromLocation ?? '-'} → ${batch.toLocation ?? '-'}',
-                      style: const TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 16),
-                    if (hasVehicleList)
-                      Autocomplete<AppVehicle>(
-                        initialValue: TextEditingValue(
-                          text: batch.vehicle ?? '',
-                        ),
-                        displayStringForOption: (vehicle) {
-                          return vehicle.vehicleNumber!.trim();
-                        },
-                        optionsBuilder: (textEditingValue) {
-                          final query =
-                              textEditingValue.text.trim().toLowerCase();
-                          if (query.isEmpty) {
-                            return vehiclesWithNumber;
-                          }
-                          return vehiclesWithNumber.where((vehicle) {
-                            final reg =
-                                vehicle.vehicleNumber!.trim().toLowerCase();
-                            return reg.contains(query);
-                          });
-                        },
-                        onSelected: (vehicle) {
-                          final reg = vehicle.vehicleNumber!.trim();
-                          vehicleCtrl.text = reg;
-                          vehicleText.value = reg;
-                        },
-                        fieldViewBuilder: (
-                          context,
-                          textEditingController,
-                          focusNode,
-                          onFieldSubmitted,
-                        ) {
-                          return TextField(
-                            controller: textEditingController,
-                            focusNode: focusNode,
-                            textCapitalization: TextCapitalization.characters,
-                            decoration: InputDecoration(
-                              labelText: 'Vehicle Registration *',
-                              prefixIcon: const Icon(Icons.directions_car),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            onChanged: (value) {
-                              vehicleCtrl.text = value.trim();
-                              vehicleText.value = value.trim();
-                            },
-                          );
-                        },
-                      )
-                    else
-                      TextField(
-                        controller: vehicleCtrl,
-                        textCapitalization: TextCapitalization.characters,
-                        decoration: InputDecoration(
-                          labelText: 'Vehicle Registration *',
-                          prefixIcon: const Icon(Icons.directions_car),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        onChanged: (value) => vehicleText.value = value.trim(),
-                      ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: driverCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Driver Name',
-                        prefixIcon: const Icon(Icons.person),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    ValueListenableBuilder<String>(
-                      valueListenable: vehicleText,
-                      builder: (context, value, _) {
-                        if (value.trim().isNotEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text(
-                            '* Vehicle registration is required before dispatch',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontSize: 12,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancel'),
-                  ),
-                  ValueListenableBuilder<String>(
-                    valueListenable: vehicleText,
-                    builder: (context, value, _) {
-                      final vehicleValid = value.trim().isNotEmpty;
-                      return ElevatedButton(
-                        onPressed:
-                            vehicleValid
-                                ? () => Navigator.pop(ctx, true)
-                                : null,
-                        child: const Text('Dispatch'),
-                      );
-                    },
-                  ),
-                ],
-              );
-            },
+          (ctx) => _DispatchDialog(
+            batch: batch,
+            vehiclesWithNumber: vehiclesWithNumber,
           ),
     );
 
-    if (confirmed == true) {
+    if (result != null) {
       await _controller.dispatchBatch(
         batch,
-        vehicle: vehicleText.value.trim(),
-        driver: driverCtrl.text.trim(),
+        vehicle: result.vehicle,
+        driver: result.driver,
       );
     }
-
-    vehicleCtrl.dispose();
-    driverCtrl.dispose();
-    vehicleText.dispose();
   }
 
   @override
@@ -518,101 +385,114 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         );
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: getStatusColor(ParcelStatus.pending),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Pending Batches',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: getStatusColor(
-                    ParcelStatus.pending,
-                  ).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${batches.length} batches',
-                  style: theme.textTheme.labelMedium?.copyWith(
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: getStatusColor(ParcelStatus.pending).withValues(alpha: 0.2),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: getStatusColor(ParcelStatus.pending),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Pending Batches',
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...batches.map(
-            (batch) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _BatchCard(
-                key: _getKey('batch-${batch.batchNo}'),
-                batch: batch,
-                parcels:
-                    _controller.parcels
-                        .where((p) => p.Batch_No == batch.batchNo)
-                        .toList(),
-                onDispatch: () => _showDispatchDialog(context, batch),
-                isExpanded: _expandedId == 'batch-${batch.batchNo}',
-                onToggle: () => _setExpanded('batch-${batch.batchNo}'),
-                onEditParcel: (parcel) async {
-                  final result = await Get.to(
-                    () => AddEditParcelPage(parcel: parcel),
-                  );
-                  if (result == true) {
-                    await _controller.loadParcels();
-                    await _controller.loadPendingBatches();
-                  }
-                },
-                onDeleteParcel: (parcel) async {
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder:
-                        (ctx) => AlertDialog(
-                          title: const Text('Delete Parcel'),
-                          content: Text(
-                            'Are you sure you want to delete ${parcel.Document_No ?? 'this parcel'}?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: const Text('Cancel'),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: getStatusColor(
+                      ParcelStatus.pending,
+                    ).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${batches.length} batches',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: getStatusColor(ParcelStatus.pending),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...batches.map(
+              (batch) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _BatchCard(
+                  key: _getKey('batch-${batch.batchNo}'),
+                  batch: batch,
+                  parcels:
+                      _controller.parcels
+                          .where((p) => p.Batch_No == batch.batchNo)
+                          .toList(),
+                  onDispatch: () => _showDispatchDialog(context, batch),
+                  isExpanded: _expandedId == 'batch-${batch.batchNo}',
+                  onToggle: () => _setExpanded('batch-${batch.batchNo}'),
+                  onEditParcel: (parcel) async {
+                    final result = await Get.to(
+                      () => AddEditParcelPage(parcel: parcel),
+                    );
+                    if (result == true) {
+                      await _controller.loadParcels();
+                      await _controller.loadPendingBatches();
+                    }
+                  },
+                  onDeleteParcel: (parcel) async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder:
+                          (ctx) => AlertDialog(
+                            title: const Text('Delete Parcel'),
+                            content: Text(
+                              'Are you sure you want to delete ${parcel.Document_No ?? 'this parcel'}?',
                             ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.red,
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Cancel'),
                               ),
-                              child: const Text('Delete'),
-                            ),
-                          ],
-                        ),
-                  );
-                  if (confirmed == true) {
-                    await _controller.deleteParcel(parcel.Document_No ?? '');
-                    await _controller.loadPendingBatches();
-                  }
-                },
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                ),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                    );
+                    if (confirmed == true) {
+                      await _controller.deleteParcel(parcel.Document_No ?? '');
+                      await _controller.loadPendingBatches();
+                    }
+                  },
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     });
   }
@@ -633,58 +513,72 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         );
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'In Transit',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${batches.length} batches',
-                  style: theme.textTheme.labelMedium?.copyWith(
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: color,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'In Transit',
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...batches.map(
-            (batch) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _InTransitBatchCard(
-                key: _getKey('intransit-${batch.batchNo}'),
-                batch: batch,
-                parcels:
-                    _controller.parcels
-                        .where((p) => p.Batch_No == batch.batchNo)
-                        .toList(),
-                onReceive: () => _showReceiveConfirm(context, batch),
-                isExpanded: _expandedId == 'intransit-${batch.batchNo}',
-                onToggle: () => _setExpanded('intransit-${batch.batchNo}'),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${batches.length} batches',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...batches.map(
+              (batch) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _InTransitBatchCard(
+                  key: _getKey('intransit-${batch.batchNo}'),
+                  batch: batch,
+                  parcels:
+                      _controller.parcels
+                          .where((p) => p.Batch_No == batch.batchNo)
+                          .toList(),
+                  onReceive: () => _showReceiveConfirm(context, batch),
+                  isExpanded: _expandedId == 'intransit-${batch.batchNo}',
+                  onToggle: () => _setExpanded('intransit-${batch.batchNo}'),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     });
   }
@@ -737,52 +631,67 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         );
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Received',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${parcels.length} parcels',
-                  style: theme.textTheme.labelMedium?.copyWith(
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: color,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Received',
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...parcels.map(
-            (parcel) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _ReceivedParcelCard(
-                parcel: parcel,
-                onPay: () => _controller.payForParcel(context, parcel),
-                onCollect: () => _showCollectConfirm(context, parcel),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${parcels.length} parcels',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...parcels.map(
+              (parcel) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _ReceivedParcelCard(
+                  parcel: parcel,
+                  onPay: () => _controller.payForParcel(context, parcel),
+                  onCollect: () => _showCollectConfirm(context, parcel),
+                  onPrint: () => _printParcelForTesting(context, parcel),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     });
   }
@@ -817,6 +726,29 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
   }
 
+  Future<void> _printParcelForTesting(
+    BuildContext context,
+    Parcel parcel,
+  ) async {
+    final printed = await showPrintReceiptDialog(
+      context: context,
+      parcel: parcel,
+      onSkip: () {},
+    );
+
+    if (printed == true) {
+      parcel.receiptPrinted = true;
+      await _controller.updateParcel(parcel);
+      if (mounted) {
+        Get.snackbar(
+          'Printed',
+          'Receipt sent to printer',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+      }
+    }
+  }
+
   Widget _buildCollectedSection(ThemeData theme) {
     return Obx(() {
       final grouped = _controller.parcelsByStatus;
@@ -834,48 +766,65 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         );
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Collected',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${parcels.length} parcels',
-                  style: theme.textTheme.labelMedium?.copyWith(
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
                     color: color,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Collected',
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...parcels.map(
-            (parcel) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _CollectedParcelCard(parcel: parcel),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${parcels.length} parcels',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            ...parcels.map(
+              (parcel) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _CollectedParcelCard(
+                  parcel: parcel,
+                  onPrint: () => _printParcelForTesting(context, parcel),
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     });
   }
@@ -1247,11 +1196,13 @@ class _ReceivedParcelCard extends StatelessWidget {
     required this.parcel,
     required this.onPay,
     required this.onCollect,
+    required this.onPrint,
   });
 
   final Parcel parcel;
   final VoidCallback onPay;
   final VoidCallback onCollect;
+  final VoidCallback onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -1354,36 +1305,55 @@ class _ReceivedParcelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child:
-                isPaid
-                    ? ElevatedButton.icon(
-                      onPressed: onCollect,
-                      icon: const Icon(Icons.task_alt, size: 18),
-                      label: const Text('Collected'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: getStatusColor(ParcelStatus.collected),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    )
-                    : ElevatedButton.icon(
-                      onPressed: onPay,
-                      icon: const Icon(Icons.payment, size: 18),
-                      label: const Text('Pay'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onPrint,
+                  icon: const Icon(Icons.print, size: 18),
+                  label: const Text('Print'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child:
+                    isPaid
+                        ? ElevatedButton.icon(
+                          onPressed: onCollect,
+                          icon: const Icon(Icons.task_alt, size: 18),
+                          label: const Text('Collected'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: getStatusColor(
+                              ParcelStatus.collected,
+                            ),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        )
+                        : ElevatedButton.icon(
+                          onPressed: onPay,
+                          icon: const Icon(Icons.payment, size: 18),
+                          label: const Text('Pay'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1452,9 +1422,10 @@ class _AccordionTile extends StatelessWidget {
 }
 
 class _CollectedParcelCard extends StatelessWidget {
-  const _CollectedParcelCard({required this.parcel});
+  const _CollectedParcelCard({required this.parcel, required this.onPrint});
 
   final Parcel parcel;
+  final VoidCallback onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -1468,41 +1439,63 @@ class _CollectedParcelCard extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       padding: const EdgeInsets.all(12),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  parcel.Document_No ?? '-',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      parcel.Document_No ?? '-',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Receiver: ${parcel.Receiver_Name ?? '-'} | ${parcel.Receiver_Phone ?? '-'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Receiver: ${parcel.Receiver_Name ?? '-'} | ${parcel.Receiver_Phone ?? '-'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.black54,
-                  ),
+              ),
+              Text(
+                DateFormat('dd MMM').format(
+                  parcel.Date_Collected ?? parcel.Date_sent ?? DateTime.now(),
                 ),
-              ],
-            ),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: Colors.black54,
+                ),
+              ),
+            ],
           ),
-          Text(
-            DateFormat('dd MMM').format(
-              parcel.Date_Collected ?? parcel.Date_sent ?? DateTime.now(),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onPrint,
+              icon: const Icon(Icons.print, size: 18),
+              label: const Text('Print'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
             ),
-            style: theme.textTheme.labelMedium?.copyWith(color: Colors.black54),
           ),
         ],
       ),
@@ -1949,6 +1942,218 @@ class _BatchCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DispatchDialogResult {
+  const _DispatchDialogResult({required this.vehicle, required this.driver});
+
+  final String vehicle;
+  final String driver;
+}
+
+class _DispatchDialog extends StatefulWidget {
+  const _DispatchDialog({
+    required this.batch,
+    required this.vehiclesWithNumber,
+  });
+
+  final Batches batch;
+  final List<AppVehicle> vehiclesWithNumber;
+
+  @override
+  State<_DispatchDialog> createState() => _DispatchDialogState();
+}
+
+class _DispatchDialogState extends State<_DispatchDialog> {
+  late final TextEditingController _vehicleCtrl;
+  late final TextEditingController _driverCtrl;
+  late final ValueNotifier<String> _vehicleText;
+  late final FocusNode _vehicleFocus;
+
+  @override
+  void initState() {
+    super.initState();
+    _vehicleCtrl = TextEditingController(text: widget.batch.vehicle ?? '');
+    _driverCtrl = TextEditingController(text: widget.batch.driver ?? '');
+    _vehicleText = ValueNotifier<String>(widget.batch.vehicle?.trim() ?? '');
+    _vehicleFocus = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _vehicleCtrl.dispose();
+    _driverCtrl.dispose();
+    _vehicleText.dispose();
+    _vehicleFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final batch = widget.batch;
+    final vehiclesWithNumber = widget.vehiclesWithNumber;
+    final hasVehicleList = vehiclesWithNumber.isNotEmpty;
+
+    return AlertDialog(
+      title: const Text('Dispatch Batch'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Batch: ${batch.batchNo ?? '-'}'),
+            const SizedBox(height: 4),
+            Text(
+              '${batch.fromLocation ?? '-'} → ${batch.toLocation ?? '-'}',
+              style: const TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+            hasVehicleList
+                ? RawAutocomplete<String>(
+                  textEditingController: _vehicleCtrl,
+                  focusNode: _vehicleFocus,
+                  optionsBuilder: (TextEditingValue value) {
+                    final query = value.text.trim().toLowerCase();
+                    // Only show suggestions after at least 2 characters typed.
+                    if (query.length < 2) {
+                      return const Iterable<String>.empty();
+                    }
+                    return vehiclesWithNumber
+                        .map((v) => v.vehicleNumber!.trim())
+                        .where((reg) {
+                          final lower = reg.toLowerCase();
+                          // Hide the list once an exact match is chosen.
+                          if (lower == query) return false;
+                          return lower.contains(query);
+                        });
+                  },
+                  onSelected: (selection) {
+                    _vehicleText.value = selection;
+                  },
+                  fieldViewBuilder: (
+                    context,
+                    controller,
+                    focusNode,
+                    onFieldSubmitted,
+                  ) {
+                    return TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        labelText: 'Vehicle Registration *',
+                        prefixIcon: const Icon(Icons.directions_car),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onChanged: (value) => _vehicleText.value = value.trim(),
+                      onSubmitted: (_) => onFieldSubmitted(),
+                    );
+                  },
+                  optionsViewBuilder: (context, onSelected, options) {
+                    final items = options.toList();
+                    return Align(
+                      alignment: Alignment.topLeft,
+                      child: Material(
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(8),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxHeight: 200,
+                            maxWidth: 360,
+                          ),
+                          child: ListView.builder(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: items.length,
+                            itemBuilder: (context, index) {
+                              final reg = items[index];
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(
+                                  Icons.directions_car,
+                                  size: 18,
+                                ),
+                                title: Text(reg),
+                                onTap: () => onSelected(reg),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                )
+                : TextField(
+                  controller: _vehicleCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: 'Vehicle Registration *',
+                    prefixIcon: const Icon(Icons.directions_car),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onChanged: (value) => _vehicleText.value = value.trim(),
+                ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _driverCtrl,
+              decoration: InputDecoration(
+                labelText: 'Driver Name',
+                prefixIcon: const Icon(Icons.person),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            ValueListenableBuilder<String>(
+              valueListenable: _vehicleText,
+              builder: (context, value, _) {
+                if (value.trim().isNotEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    '* Vehicle registration is required before dispatch',
+                    style: TextStyle(color: Colors.orange, fontSize: 12),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ValueListenableBuilder<String>(
+          valueListenable: _vehicleText,
+          builder: (context, value, _) {
+            final vehicleValid = value.trim().isNotEmpty;
+            return ElevatedButton(
+              onPressed:
+                  vehicleValid
+                      ? () => Navigator.pop(
+                        context,
+                        _DispatchDialogResult(
+                          vehicle: _vehicleCtrl.text.trim(),
+                          driver: _driverCtrl.text.trim(),
+                        ),
+                      )
+                      : null,
+              child: const Text('Dispatch'),
+            );
+          },
+        ),
+      ],
     );
   }
 }

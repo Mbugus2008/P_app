@@ -648,14 +648,11 @@ class ApiClient extends ChangeNotifier {
     final dynamic decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) return null;
 
-    final int code =
-        decoded['Code'] is int
-            ? decoded['Code']
-            : int.tryParse(decoded['Code']?.toString() ?? '') ?? -1;
-
-    if (code != 0) return null;
-
-    return decoded['contents'] as Map<String, dynamic>?;
+    // Return the Contents (the MpesaStkStatus object) regardless of the
+    // envelope Code. The API sets envelope Code = -1 for any non-success
+    // ResultCode, so we must not discard it here — the dialog inspects the
+    // inner resultCode (0 = success, -1 = pending, anything else = failure).
+    return _readEnvelopeValue(decoded, 'Contents') as Map<String, dynamic>?;
   }
 
   Future<Map<String, dynamic>?> checkC2BTransaction(String reference) async {
@@ -670,14 +667,16 @@ class ApiClient extends ChangeNotifier {
     final dynamic decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) return null;
 
+    final codeRaw = _readEnvelopeValue(decoded, 'Code');
     final int code =
-        decoded['Code'] is int
-            ? decoded['Code']
-            : int.tryParse(decoded['Code']?.toString() ?? '') ?? -1;
+        codeRaw is int
+            ? codeRaw
+            : int.tryParse(codeRaw?.toString() ?? '') ?? -1;
 
     return {
       'code': code,
-      'contents': decoded['contents'] as Map<String, dynamic>?,
+      'contents':
+          _readEnvelopeValue(decoded, 'Contents') as Map<String, dynamic>?,
     };
   }
 

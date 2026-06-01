@@ -39,6 +39,8 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
   List<AppLocation> _destinationLocations = <AppLocation>[];
   bool _hasSavedParcel = false;
   late bool _isEditingMode;
+  bool _showSenderId = false;
+  bool _showReceiverId = false;
 
   @override
   void initState() {
@@ -47,6 +49,8 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     controller.parcel = widget.parcel;
     if (widget.parcel != null) {
       controller.PopulateFormWithParcel(widget.parcel!);
+      _showSenderId = controller.senderIdController.text.trim().isNotEmpty;
+      _showReceiverId = controller.receiverIdController.text.trim().isNotEmpty;
     }
     _loadDestinationLocations();
   }
@@ -220,80 +224,18 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                     ),
                   ],
                 ),
-              )
-            else
-              TextButton(
-                onPressed: () async {
-                  final amount =
-                      double.tryParse(controller.amountPaidController.text) ??
-                      0;
-                  if (amount <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Enter an amount first'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    return;
-                  }
-                  final docNo = controller.documentNoController.text.trim();
-                  final result = await showMpesaPaymentDialog(
-                    context: context,
-                    amount: amount,
-                    reference: docNo.isEmpty ? null : docNo,
-                    senderPhone: controller.senderPhoneController.text.trim(),
-                  );
-                  if (result != null) {
-                    final (method, receipt) = result;
-                    setState(() {
-                      controller.paymentMethod = method;
-                      controller.paid = true;
-                      if (method == PaymentMethod.mpesa && receipt != null) {
-                        controller.mpesaCodeController.text = receipt;
-                      } else {
-                        controller.mpesaCodeController.clear();
-                      }
-                    });
-                    if (method == PaymentMethod.cash &&
-                        controller.formKey.currentState!.validate()) {
-                      await _submitForm();
-                    }
-                    // Show receipt print dialog after payment
-                    if (mounted && controller.parcel != null) {
-                      final printed = await showPrintReceiptDialog(
-                        context: context,
-                        parcel: controller.parcel!,
-                        onSkip: () {},
-                      );
-                      if (printed == true && mounted) {
-                        setState(() {
-                          controller.parcel!.receiptPrinted = true;
-                        });
-                        await controller.updateParcel(controller.parcel!);
-                      }
-                    }
-                  }
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                child: const Text(
-                  'Pay',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                ),
               ),
           ],
         ),
         body: SafeArea(
-          child: AbsorbPointer(
-            absorbing: isLocked,
-            child: Form(
-              key: controller.formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
+          child: Form(
+            key: controller.formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: AbsorbPointer(
+                    absorbing: isLocked,
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       child: Column(
@@ -311,45 +253,121 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                       ),
                     ),
                   ),
-                  AnimatedPadding(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOut,
-                    padding: EdgeInsets.only(bottom: keyboardInset),
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      decoration: BoxDecoration(
-                        color: AppColors.scaffold,
-                        border: Border(
-                          top: BorderSide(color: Colors.grey.shade300),
-                        ),
-                      ),
-                      child: SizedBox(
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            if (controller.formKey.currentState!.validate()) {
-                              await _submitForm();
-                            }
-                          },
-                          icon: Icon(
-                            _isEditingMode
-                                ? Icons.save_rounded
-                                : Icons.check_circle_outline,
-                          ),
-                          label: Text(
-                            _isEditingMode ? 'Update Parcel' : 'Save Parcel',
-                          ),
-                        ),
+                ),
+                Padding(
+                  padding: EdgeInsets.only(bottom: keyboardInset),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.scaffold,
+                      border: Border(
+                        top: BorderSide(color: Colors.grey.shade300),
                       ),
                     ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  isLocked
+                                      ? null
+                                      : () async {
+                                        if (controller.formKey.currentState!
+                                            .validate()) {
+                                          await _submitForm();
+                                        }
+                                      },
+                              icon: Icon(
+                                _isEditingMode
+                                    ? Icons.save_rounded
+                                    : Icons.check_circle_outline,
+                              ),
+                              label: Text(
+                                _isEditingMode
+                                    ? 'Update Parcel'
+                                    : 'Save Parcel',
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: OutlinedButton.icon(
+                              onPressed: _handlePayAction,
+                              icon: const Icon(Icons.payments_outlined),
+                              label: const Text('Pay'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _handlePayAction() async {
+    final amount = double.tryParse(controller.amountPaidController.text) ?? 0;
+    if (amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter an amount first'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final docNo = controller.documentNoController.text.trim();
+    final result = await showMpesaPaymentDialog(
+      context: context,
+      amount: amount,
+      reference: docNo.isEmpty ? null : docNo,
+      senderPhone: controller.senderPhoneController.text.trim(),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    final (method, receipt) = result;
+    setState(() {
+      controller.paymentMethod = method;
+      controller.paid = true;
+      if (method == PaymentMethod.mpesa && receipt != null) {
+        controller.mpesaCodeController.text = receipt;
+      } else {
+        controller.mpesaCodeController.clear();
+      }
+    });
+
+    // Persist payment for both cash and M-Pesa before showing receipt flow.
+    if (controller.formKey.currentState!.validate()) {
+      await _submitForm();
+    }
+
+    if (mounted && controller.parcel != null) {
+      final printed = await showPrintReceiptDialog(
+        context: context,
+        parcel: controller.parcel!,
+        onSkip: () {},
+      );
+      if (printed == true && mounted) {
+        setState(() {
+          controller.parcel!.receiptPrinted = true;
+        });
+        await controller.updateParcel(controller.parcel!);
+      }
+    }
   }
 
   Widget _buildSectionCard(
@@ -515,42 +533,62 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
 
       children: [
         _buildTextField(
-          controller: controller.senderNameController,
-          focusNode: _senderNameFocusNode,
-          label: 'Sender Name',
-          prefixIcon: Icons.person,
+          controller: controller.senderPhoneController,
+          focusNode: _senderPhoneFocusNode,
+          label: 'Sender Phone',
+          prefixIcon: Icons.phone,
+          isRequired: true,
+          keyboardType: TextInputType.phone,
           textInputAction: TextInputAction.next,
           onSubmitted:
               () => _focusAndSelect(
-                _senderPhoneFocusNode,
-                controller.senderPhoneController,
+                _senderNameFocusNode,
+                controller.senderNameController,
               ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Sender Phone is required';
+            }
+            if (value.trim().length < 9) {
+              return 'Minimum 9 characters';
+            }
+            return null;
+          },
         ),
         const SizedBox(height: 16),
-        _buildInlineFields(context, [
-          _buildTextField(
-            controller: controller.senderPhoneController,
-            focusNode: _senderPhoneFocusNode,
-            label: 'Sender Phone',
-            prefixIcon: Icons.phone,
-            isRequired: true,
-            keyboardType: TextInputType.phone,
-            textInputAction: TextInputAction.next,
-            onSubmitted:
-                () => _focusAndSelect(
-                  _senderIdFocusNode,
-                  controller.senderIdController,
-                ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Sender Phone is required';
-              }
-              if (value.trim().length < 9) {
-                return 'Minimum 9 characters';
-              }
-              return null;
-            },
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _buildTextField(
+                controller: controller.senderNameController,
+                focusNode: _senderNameFocusNode,
+                label: 'Sender Name',
+                prefixIcon: Icons.person,
+                textInputAction: TextInputAction.next,
+                onSubmitted:
+                    () =>
+                        _showSenderId
+                            ? _focusAndSelect(
+                              _senderIdFocusNode,
+                              controller.senderIdController,
+                            )
+                            : _focusAndSelect(
+                              _receiverPhoneFocusNode,
+                              controller.receiverPhoneController,
+                            ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: _showSenderId ? 'Hide Sender ID' : 'Add Sender ID',
+              icon: Icon(_showSenderId ? Icons.expand_less : Icons.more_horiz),
+              onPressed: () => setState(() => _showSenderId = !_showSenderId),
+            ),
+          ],
+        ),
+        if (_showSenderId) ...[
+          const SizedBox(height: 16),
           _buildTextField(
             controller: controller.senderIdController,
             focusNode: _senderIdFocusNode,
@@ -559,11 +597,11 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
             textInputAction: TextInputAction.next,
             onSubmitted:
                 () => _focusAndSelect(
-                  _receiverNameFocusNode,
-                  controller.receiverNameController,
+                  _receiverPhoneFocusNode,
+                  controller.receiverPhoneController,
                 ),
           ),
-        ]),
+        ],
       ],
     );
   }
@@ -576,42 +614,65 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       subtitle: 'Who is expecting the parcel?',
       children: [
         _buildTextField(
-          controller: controller.receiverNameController,
-          focusNode: _receiverNameFocusNode,
-          label: 'Receiver Name',
-          prefixIcon: Icons.person_outline,
+          controller: controller.receiverPhoneController,
+          focusNode: _receiverPhoneFocusNode,
+          label: 'Receiver Phone',
+          prefixIcon: Icons.phone_outlined,
+          isRequired: true,
+          keyboardType: TextInputType.phone,
           textInputAction: TextInputAction.next,
           onSubmitted:
               () => _focusAndSelect(
-                _receiverPhoneFocusNode,
-                controller.receiverPhoneController,
+                _receiverNameFocusNode,
+                controller.receiverNameController,
               ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Receiver Phone is required';
+            }
+            if (value.trim().length < 9) {
+              return 'Minimum 9 characters';
+            }
+            return null;
+          },
         ),
         const SizedBox(height: 16),
-        _buildInlineFields(context, [
-          _buildTextField(
-            controller: controller.receiverPhoneController,
-            focusNode: _receiverPhoneFocusNode,
-            label: 'Receiver Phone',
-            prefixIcon: Icons.phone_outlined,
-            isRequired: true,
-            keyboardType: TextInputType.phone,
-            textInputAction: TextInputAction.next,
-            onSubmitted:
-                () => _focusAndSelect(
-                  _receiverIdFocusNode,
-                  controller.receiverIdController,
-                ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Receiver Phone is required';
-              }
-              if (value.trim().length < 9) {
-                return 'Minimum 9 characters';
-              }
-              return null;
-            },
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _buildTextField(
+                controller: controller.receiverNameController,
+                focusNode: _receiverNameFocusNode,
+                label: 'Receiver Name',
+                prefixIcon: Icons.person_outline,
+                textInputAction:
+                    _showReceiverId
+                        ? TextInputAction.next
+                        : TextInputAction.done,
+                onSubmitted:
+                    () =>
+                        _showReceiverId
+                            ? _focusAndSelect(
+                              _receiverIdFocusNode,
+                              controller.receiverIdController,
+                            )
+                            : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: _showReceiverId ? 'Hide Receiver ID' : 'Add Receiver ID',
+              icon: Icon(
+                _showReceiverId ? Icons.expand_less : Icons.more_horiz,
+              ),
+              onPressed:
+                  () => setState(() => _showReceiverId = !_showReceiverId),
+            ),
+          ],
+        ),
+        if (_showReceiverId) ...[
+          const SizedBox(height: 16),
           _buildTextField(
             controller: controller.receiverIdController,
             focusNode: _receiverIdFocusNode,
@@ -619,40 +680,34 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
             prefixIcon: Icons.perm_identity,
             textInputAction: TextInputAction.done,
           ),
-        ]),
+        ],
       ],
     );
   }
 
   Widget _buildDetailsSection(BuildContext context) {
-    final details = controller.parcel?.parcelDetails ?? <Parcel_Details>[];
-    final total = details.fold<double>(
-      0,
-      (sum, item) => sum + (item.Amount ?? 0.0),
-    );
-
+    final parcel = controller.parcel ??= Parcel();
+    final details = parcel.parcelDetails;
     return _buildSectionCard(
       context,
       icon: Icons.list_alt_outlined,
       title: 'Parcel Items',
       subtitle: 'Breakdown of contents and values',
       trailing: IconButton(
-        onPressed: () {
-          controller.addParcelDetail();
-          setState(() {});
-        },
+        onPressed: () => _showAddParcelDetailDialog(context),
         icon: const Icon(Icons.add_circle_outline),
       ),
       children: [
-        Row(
-          children: [
-            _buildSummaryPill(label: 'Items', value: '${details.length}'),
-            const SizedBox(width: 12),
-            _buildSummaryPill(
-              label: 'Total',
-              value: 'KES ${total.toStringAsFixed(0)}',
-            ),
-          ],
+        TextFormField(
+          initialValue: parcel.Details ?? '',
+          minLines: 2,
+          maxLines: 4,
+          textInputAction: TextInputAction.newline,
+          decoration: const InputDecoration(
+            labelText: 'Parcel Description',
+            prefixIcon: Icon(Icons.description_outlined),
+          ),
+          onChanged: (value) => controller.parcel!.Details = value,
         ),
         const SizedBox(height: 16),
         if (details.isEmpty)
@@ -685,65 +740,12 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     );
   }
 
-  Widget _buildInlineFields(BuildContext context, List<Widget> fields) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 500) {
-          return Column(
-            children: [
-              for (var i = 0; i < fields.length; i++)
-                Padding(
-                  padding: EdgeInsets.only(
-                    bottom: i == fields.length - 1 ? 0 : 16,
-                  ),
-                  child: fields[i],
-                ),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            for (var i = 0; i < fields.length; i++)
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    right: i == fields.length - 1 ? 0 : 16,
-                  ),
-                  child: fields[i],
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSummaryPill({required String label, required String value}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: AppColors.secondary.withValues(alpha: 0.08),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(color: Colors.black54, fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildParcelDetailTile(
     BuildContext context,
     Parcel_Details detail,
     int index,
   ) {
+    final noOfItems = (detail.No_Of_Items ?? 0) > 0 ? detail.No_Of_Items! : 1;
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: () => _showEditParcelDetailDialog(context, detail, index),
@@ -761,6 +763,15 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    'No of item: $noOfItems',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
                   Text(
                     detail.Description?.isNotEmpty == true
                         ? detail.Description!
@@ -780,24 +791,13 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 ],
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  'KES ${(detail.Amount ?? 0).toStringAsFixed(0)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                  ),
-                  onPressed: () {
-                    // controller.removeParcelDetail(index);
-                  },
-                  tooltip: 'Remove item',
-                ),
-              ],
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              onPressed: () {
+                controller.removeParcelDetail(index);
+                setState(() {});
+              },
+              tooltip: 'Remove item',
             ),
           ],
         ),
@@ -859,85 +859,158 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     );
   }
 
+  Future<void> _showAddParcelDetailDialog(BuildContext context) async {
+    await _showParcelDetailDialog(context: context);
+  }
+
   Future<void> _showEditParcelDetailDialog(
     BuildContext context,
     Parcel_Details parcelDetail,
     int index,
   ) async {
-    final descCtrl = TextEditingController(text: parcelDetail.Description);
-    final amountCtrl = TextEditingController(
-      text: parcelDetail.Amount?.toString(),
-    );
-    final remarksCtrl = TextEditingController(text: parcelDetail.Remarks);
-
-    await showDialog(
+    await _showParcelDetailDialog(
       context: context,
-      builder:
-          (ctx) => Dialog(
-            insetPadding: EdgeInsets.zero,
-            child: SizedBox(
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
-              child: Scaffold(
-                appBar: AppBar(title: const Text('Edit Parcel Detail')),
-                body: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: descCtrl,
-                          maxLines: null,
-                          minLines: 3,
-                          decoration: const InputDecoration(
-                            labelText: 'Description',
-                          ),
-                        ),
-                        TextField(
-                          controller: amountCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Amount',
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                        TextField(
-                          controller: remarksCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Remarks',
-                          ),
-                        ),
-                      ],
+      existing: parcelDetail,
+      index: index,
+    );
+  }
+
+  Future<void> _showParcelDetailDialog({
+    required BuildContext context,
+    Parcel_Details? existing,
+    int? index,
+  }) async {
+    final isEditing = existing != null && index != null;
+    final descCtrl = TextEditingController(text: existing?.Description ?? '');
+    final noOfItemsCtrl = TextEditingController(
+      text:
+          (existing?.No_Of_Items ?? 0) <= 0
+              ? '1'
+              : (existing!.No_Of_Items!).toString(),
+    );
+    final remarksCtrl = TextEditingController(text: existing?.Remarks ?? '');
+    final formKey = GlobalKey<FormState>();
+    final descFocus = FocusNode();
+
+    final saved = await showGeneralDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: Duration.zero,
+      pageBuilder: (ctx, _, __) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          descFocus.requestFocus();
+        });
+        return AlertDialog(
+          title: Text(isEditing ? 'Edit Item' : 'Add Item'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: descCtrl,
+                    focusNode: descFocus,
+                    minLines: 1,
+                    maxLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Description is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: noOfItemsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'No of items',
+                      prefixIcon: Icon(Icons.format_list_numbered),
+                    ),
+                    validator: (value) {
+                      final count = int.tryParse(value?.trim() ?? '');
+                      if (count == null || count <= 0) {
+                        return 'Enter a valid number of items';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: remarksCtrl,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Remarks (optional)',
+                      prefixIcon: Icon(Icons.notes_outlined),
                     ),
                   ),
-                ),
-                bottomNavigationBar: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          // controller.updateParcelDetail(
-                          //   index,
-                          //   descCtrl.text,
-                          //   double.tryParse(amountCtrl.text) ?? 0.0,
-                          //   remarksCtrl.text,
-                          // );
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  ),
-                ),
+                ],
               ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                FocusScope.of(ctx).unfocus();
+                Navigator.pop(ctx, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  FocusScope.of(ctx).unfocus();
+                  Navigator.pop(ctx, true);
+                }
+              },
+              child: Text(isEditing ? 'Save' : 'Add'),
+            ),
+          ],
+        );
+      },
     );
+
+    if (saved == true) {
+      final amount = existing?.Amount ?? 0.0;
+      final noOfItems = int.tryParse(noOfItemsCtrl.text.trim()) ?? 1;
+      if (isEditing) {
+        controller.updateParcelDetail(
+          index,
+          description: descCtrl.text.trim(),
+          amount: amount,
+          remarks: remarksCtrl.text.trim(),
+          noOfItems: noOfItems,
+        );
+      } else {
+        controller.addParcelDetailItem(
+          description: descCtrl.text.trim(),
+          amount: amount,
+          remarks: remarksCtrl.text.trim(),
+          noOfItems: noOfItems,
+        );
+      }
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() {});
+        });
+      }
+    }
+
+    // Dispose after dialog pop animation settles to avoid widget lifecycle races.
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      descCtrl.dispose();
+      noOfItemsCtrl.dispose();
+      remarksCtrl.dispose();
+      descFocus.dispose();
+    });
   }
 
   Future<void> _submitForm() async {
@@ -969,6 +1042,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         Batch_No: existing?.Batch_No,
         Date_Collected: controller.parcel?.Date_Collected,
         Date_Delivered: controller.parcel?.Date_Delivered,
+        Details: controller.parcel?.Details,
         parcelDetails: controller.parcel?.parcelDetails,
       );
 

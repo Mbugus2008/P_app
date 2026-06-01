@@ -25,8 +25,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   Future<void> _checkAuth() async {
     final controller = Get.find<ParcelController>();
-    await controller.syncUsersOnStartup();
-    await controller.syncLocationsOnStartup();
+    await controller.syncReferenceDataOnLogin();
 
     final identifier = await RememberMeHelper.getRememberedIdentifier();
 

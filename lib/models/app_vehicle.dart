@@ -45,19 +45,31 @@ class AppVehicle {
       vehicleNumber:
           readString([
                 'Vehicle_Number',
+                'vehicle_Number',
                 'vehicleNumber',
                 'VehicleNumber',
               ]).isEmpty
               ? null
               : readString([
                 'Vehicle_Number',
+                'vehicle_Number',
                 'vehicleNumber',
                 'VehicleNumber',
               ]),
       vehicleType:
-          readString(['Vehicle_Type', 'vehicleType', 'VehicleType']).isEmpty
+          readString([
+                'Vehicle_Type',
+                'vehicle_Type',
+                'vehicleType',
+                'VehicleType',
+              ]).isEmpty
               ? null
-              : readString(['Vehicle_Type', 'vehicleType', 'VehicleType']),
+              : readString([
+                'Vehicle_Type',
+                'vehicle_Type',
+                'vehicleType',
+                'VehicleType',
+              ]),
       category:
           readString(['Category', 'category']).isEmpty
               ? null
@@ -70,7 +82,12 @@ class AppVehicle {
           readString(['Fleet_No', 'fleetNo', 'FleetNo']).isEmpty
               ? null
               : readString(['Fleet_No', 'fleetNo', 'FleetNo']),
-      startDate: readDate(['Start_Date', 'startDate', 'StartDate']),
+      startDate: readDate([
+        'Start_Date',
+        'start_Date',
+        'startDate',
+        'StartDate',
+      ]),
     );
   }
 

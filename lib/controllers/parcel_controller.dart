@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/database_helper.dart';
 import '../dialogs/mpesa_payment_dialog.dart';
+import '../dialogs/print_receipt_dialog.dart';
 import '../models/Parcel_Details.dart';
 import '../models/app_location.dart';
 import '../models/app_user.dart';
@@ -529,6 +530,7 @@ class ParcelController extends GetxController {
           final updated = parcel.copyWith(
             Status: ParcelStatus.inTransit,
             Out_For_Delivery_Time: dispatchedAt,
+            Time_Sent: dispatchedAt,
             Vehicle: batch.vehicle,
             Driver: batch.driver,
           );
@@ -676,6 +678,7 @@ class ParcelController extends GetxController {
           final updated = parcel.copyWith(
             Status: ParcelStatus.received,
             Date_Delivered: DateTime.now(),
+            Time_Delivered: DateTime.now(),
             isSynced: false,
           );
           await _dbHelper.updateParcel(updated);
@@ -749,6 +752,7 @@ class ParcelController extends GetxController {
       final updated = parcel.copyWith(
         Status: ParcelStatus.collected,
         Date_Collected: DateTime.now(),
+        Time_Collected: DateTime.now(),
         isSynced: false,
       );
       await _dbHelper.updateParcel(updated);
@@ -804,8 +808,9 @@ class ParcelController extends GetxController {
     if (result == null) return;
 
     final (method, receiptCode) = result;
+    final isPayLater = method == PaymentMethod.pending;
     final updated = parcel.copyWith(
-      Paid: true,
+      Paid: !isPayLater,
       paymentMethod: method,
       mpesaCode: receiptCode,
       isSynced: false,
@@ -821,10 +826,45 @@ class ParcelController extends GetxController {
 
     await loadParcels();
     await loadReceivedParcels();
-    _showSnack(
-      'Payment Recorded',
-      'Parcel ${parcel.Document_No ?? ''} is now paid.',
+
+    if (isPayLater) {
+      _showSnack(
+        'Receiver to Pay',
+        'Parcel ${parcel.Document_No ?? ''} marked for payment on collection.',
+      );
+      if (context.mounted) {
+        await _promptPrintReceipt(context, updated);
+      }
+    } else {
+      _showSnack(
+        'Payment Recorded',
+        'Parcel ${parcel.Document_No ?? ''} is now paid.',
+      );
+    }
+  }
+
+  /// Shows the print receipt dialog for [parcel] and marks it as printed on
+  /// success. Used for "Receiver to Pay" parcels so a receipt can be handed
+  /// to the sender even though payment will be collected later.
+  Future<void> _promptPrintReceipt(BuildContext context, Parcel parcel) async {
+    final printed = await showPrintReceiptDialog(
+      context: context,
+      parcel: parcel,
+      onSkip: () {},
     );
+
+    if (printed == true) {
+      final marked = parcel.copyWith(receiptPrinted: true, isSynced: false);
+      await _dbHelper.updateParcel(marked);
+      try {
+        await _apiClient.updateParcel(marked);
+        await _dbHelper.updateParcel(marked.copyWith(isSynced: true));
+      } catch (e) {
+        if (kDebugMode) debugPrint('Backend sync failed for receipt print: $e');
+      }
+      await loadParcels();
+      await loadReceivedParcels();
+    }
   }
 
   Future<void> syncReferenceDataOnLogin() async {
@@ -982,6 +1022,49 @@ class ParcelController extends GetxController {
     );
   }
 
+  void addParcelDetailItem({
+    required String description,
+    required double amount,
+    String? remarks,
+    int? noOfItems,
+  }) {
+    final docNo =
+        documentNoController.text.isEmpty ? 'TEMP-' : documentNoController.text;
+    parcel ??= _buildEmptyParcel(docNo);
+    parcel!.parcelDetails.add(
+      Parcel_Details(
+        Document_No: docNo,
+        Description: description,
+        Amount: amount,
+        Remarks: remarks,
+        No_Of_Items: noOfItems,
+      ),
+    );
+  }
+
+  void updateParcelDetail(
+    int index, {
+    required String description,
+    required double amount,
+    String? remarks,
+    int? noOfItems,
+  }) {
+    final details = parcel?.parcelDetails;
+    if (details == null || index < 0 || index >= details.length) return;
+    details[index] = details[index].copyWith(
+      Description: description,
+      Amount: amount,
+      Remarks: remarks,
+      No_Of_Items: noOfItems,
+    );
+  }
+
+  void removeParcelDetail(int index) {
+    final details = parcel?.parcelDetails;
+    if (details == null || index < 0 || index >= details.length) return;
+    details.removeAt(index);
+  }
+
   Future<void> updateParcelStatus(Parcel parcel, ParcelStatus newStatus) async {
     final currentStatus = parcel.Status ?? ParcelStatus.pending;
     if (currentStatus == newStatus) return;
@@ -1042,6 +1125,7 @@ class ParcelController extends GetxController {
   Future<void> addParcel(Parcel parcel) async {
     _isLoading.value = true;
     try {
+      parcel.Time_Created ??= DateTime.now();
       await _assignOrCreateBatch(parcel);
       await _dbHelper.insertParcel(parcel);
 
