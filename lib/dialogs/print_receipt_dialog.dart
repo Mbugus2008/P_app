@@ -7,6 +7,70 @@ import '../models/parcel_model.dart';
 import '../receipts/thermal_receipt_printer.dart';
 import 'printer_selector_dialog.dart';
 
+enum _ReceiptType { cash, label, both }
+
+class _TypeChip extends StatelessWidget {
+  const _TypeChip({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color:
+              isSelected
+                  ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                  : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color:
+                isSelected ? theme.colorScheme.primary : Colors.grey.shade300,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color:
+                  isSelected ? theme.colorScheme.primary : Colors.grey.shade600,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                color:
+                    isSelected
+                        ? theme.colorScheme.primary
+                        : Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class PrintReceiptDialog extends StatefulWidget {
   final Parcel parcel;
   final VoidCallback onSkip;
@@ -25,6 +89,7 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
   final ThermalReceiptPrinter _printer = ThermalReceiptPrinter();
   bool _isPrinting = false;
   String? _error;
+  _ReceiptType _selectedType = _ReceiptType.cash;
 
   String _maskPhone(String? value) {
     final phone = (value ?? '').trim();
@@ -45,6 +110,21 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
     return '$displayName | ${_maskPhone(phone)}';
   }
 
+  Future<void> _doPrint() async {
+    switch (_selectedType) {
+      case _ReceiptType.cash:
+        await _printer.printParcelReceipt(widget.parcel);
+        break;
+      case _ReceiptType.label:
+        await _printer.printParcelLabel(widget.parcel);
+        break;
+      case _ReceiptType.both:
+        await _printer.printParcelReceipt(widget.parcel);
+        await _printer.printParcelLabel(widget.parcel);
+        break;
+    }
+  }
+
   Future<void> _print() async {
     final prefs = await SharedPreferences.getInstance();
     final savedMac = prefs.getString('printer_mac');
@@ -56,7 +136,7 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
         builder:
             (ctx) => PrinterSelectorDialog(
               onPrint: () async {
-                await _printer.printParcelReceipt(widget.parcel);
+                await _doPrint();
               },
             ),
       );
@@ -84,7 +164,7 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
             builder:
                 (ctx) => PrinterSelectorDialog(
                   onPrint: () async {
-                    await _printer.printParcelReceipt(widget.parcel);
+                    await _doPrint();
                   },
                 ),
           );
@@ -95,7 +175,7 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
         return;
       }
 
-      await _printer.printParcelReceipt(widget.parcel);
+      await _doPrint();
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() {
@@ -135,25 +215,74 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
               Expanded(
                 child: Container(
                   color: Colors.grey.shade100,
-                  padding: const EdgeInsets.all(16),
                   child: Center(
-                    child: Container(
-                      width: 320,
+                    child: SingleChildScrollView(
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                      child: Container(
+                        width: 320,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: _buildReceiptPreview(parcel, theme),
                       ),
-                      child: _buildReceiptPreview(parcel, theme),
                     ),
                   ),
+                ),
+              ),
+              // Receipt type selector
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _TypeChip(
+                      label: 'Cash Receipt',
+                      icon: Icons.receipt_long,
+                      isSelected: _selectedType == _ReceiptType.cash,
+                      onTap:
+                          _isPrinting
+                              ? null
+                              : () => setState(
+                                () => _selectedType = _ReceiptType.cash,
+                              ),
+                    ),
+                    const SizedBox(width: 8),
+                    _TypeChip(
+                      label: 'Parcel Label',
+                      icon: Icons.label,
+                      isSelected: _selectedType == _ReceiptType.label,
+                      onTap:
+                          _isPrinting
+                              ? null
+                              : () => setState(
+                                () => _selectedType = _ReceiptType.label,
+                              ),
+                    ),
+                    const SizedBox(width: 8),
+                    _TypeChip(
+                      label: 'Both',
+                      icon: Icons.print,
+                      isSelected: _selectedType == _ReceiptType.both,
+                      onTap:
+                          _isPrinting
+                              ? null
+                              : () => setState(
+                                () => _selectedType = _ReceiptType.both,
+                              ),
+                    ),
+                  ],
                 ),
               ),
               // Error

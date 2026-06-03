@@ -20,6 +20,7 @@ Future<(PaymentMethod, String?)?> showMpesaPaymentDialog({
   required double amount,
   required String? reference,
   String? senderPhone,
+  bool allowPayLater = true,
 }) {
   return showDialog<(PaymentMethod, String?)>(
     context: context,
@@ -29,6 +30,7 @@ Future<(PaymentMethod, String?)?> showMpesaPaymentDialog({
           amount: amount,
           reference: reference,
           senderPhone: senderPhone,
+          allowPayLater: allowPayLater,
         ),
   );
 }
@@ -37,12 +39,14 @@ class MpesaPaymentDialog extends StatefulWidget {
   final double amount;
   final String? reference;
   final String? senderPhone;
+  final bool allowPayLater;
 
   const MpesaPaymentDialog({
     super.key,
     required this.amount,
     required this.reference,
     this.senderPhone,
+    this.allowPayLater = true,
   });
 
   @override
@@ -295,13 +299,15 @@ class _MpesaPaymentDialogState extends State<MpesaPaymentDialog> {
                           selected: _selectedMethod == PaymentMethod.cash,
                           onTap: () => _setMethod(PaymentMethod.cash),
                         ),
-                        const SizedBox(width: 12),
-                        _buildMethodChip(
-                          label: 'Pay Later',
-                          icon: Icons.schedule,
-                          selected: _selectedMethod == PaymentMethod.pending,
-                          onTap: () => _setMethod(PaymentMethod.pending),
-                        ),
+                        if (widget.allowPayLater) ...[
+                          const SizedBox(width: 12),
+                          _buildMethodChip(
+                            label: 'Pay Later',
+                            icon: Icons.schedule,
+                            selected: _selectedMethod == PaymentMethod.pending,
+                            onTap: () => _setMethod(PaymentMethod.pending),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -328,7 +334,8 @@ class _MpesaPaymentDialogState extends State<MpesaPaymentDialog> {
                 child:
                     _selectedMethod == PaymentMethod.cash
                         ? _buildCashTab()
-                        : _selectedMethod == PaymentMethod.pending
+                        : (widget.allowPayLater &&
+                            _selectedMethod == PaymentMethod.pending)
                         ? _buildPayLaterTab()
                         : IndexedStack(
                           index: _mpesaTabIndex,

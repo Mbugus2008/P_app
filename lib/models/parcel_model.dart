@@ -98,7 +98,6 @@ class Parcel {
       'Paid': Paid,
       'Payment_Method': paymentMethod?.name,
       'Mpesa_Code': mpesaCode,
-      'Receipt_Printed': receiptPrinted,
       'Date_Collected': Date_Collected?.toIso8601String(),
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
@@ -199,23 +198,33 @@ class Parcel {
   }
 
   Map<String, dynamic> toDbMap() {
+    String safeText(String? value, {String fallback = '-'}) {
+      final trimmed = value?.trim() ?? '';
+      return trimmed.isEmpty ? fallback : trimmed;
+    }
+
+    final senderPhone = safeText(Sender_Phone);
+    final receiverPhone = safeText(Receiver_Phone, fallback: senderPhone);
+    final senderName = safeText(Sender_Name, fallback: senderPhone);
+    final receiverName = safeText(Receiver_Name, fallback: receiverPhone);
+
     return {
       'Document_No': Document_No,
       'Batch_No': Batch_No,
-      'Date_sent': Date_sent?.toIso8601String(),
-      'Sender_Name': Sender_Name,
+      'Date_sent': (Date_sent ?? DateTime.now()).toIso8601String(),
+      'Sender_Name': senderName,
       'Sender_ID': Sender_ID,
-      'Sender_Phone': Sender_Phone,
-      'From_Location': From,
-      'To_Location': To,
-      'Receiver_Name': Receiver_Name,
+      'Sender_Phone': senderPhone,
+      'From_Location': safeText(From),
+      'To_Location': safeText(To),
+      'Receiver_Name': receiverName,
       'Receiver_ID': Receiver_ID,
-      'Receiver_Phone': Receiver_Phone,
-      'Status': Status?.name,
-      'Driver': Driver,
-      'Vehicle': Vehicle,
-      'WhoToPay': Who_to_Pay?.name,
-      'Amount_Paid': Amount_Paid,
+      'Receiver_Phone': receiverPhone,
+      'Status': (Status ?? ParcelStatus.pending).name,
+      'Driver': safeText(Driver),
+      'Vehicle': safeText(Vehicle),
+      'WhoToPay': (Who_to_Pay ?? WhoToPay.Sender).name,
+      'Amount_Paid': Amount_Paid ?? 0.0,
       'Paid': (Paid ?? false) ? 1 : 0,
       'Payment_Method': paymentMethod?.name,
       'Mpesa_Code': mpesaCode,

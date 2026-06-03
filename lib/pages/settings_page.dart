@@ -21,11 +21,13 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
+class _SettingsPageState extends State<SettingsPage>
+    with WidgetsBindingObserver {
   final BlueThermalPrinter _bluetooth = BlueThermalPrinter.instance;
   final ThermalReceiptPrinter _printer = ThermalReceiptPrinter();
   final ParcelController _parcelController = Get.find<ParcelController>();
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  static const Duration _scanTimeout = Duration(seconds: 12);
 
   List<BluetoothDevice> _devices = [];
   BluetoothDevice? _selectedDevice;
@@ -43,9 +45,27 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSavedPrinter();
-    _scanDevices();
     _loadLocations();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_scanDevices());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted && !_isScanning) {
+      unawaited(_scanDevices());
+    }
   }
 
   Future<void> _loadLocations() async {
@@ -189,20 +209,27 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _scanDevices() async {
+    if (!mounted) return;
+
     setState(() {
       _isScanning = true;
       _error = null;
     });
 
     try {
-      final bonded = await _bluetooth.getBondedDevices();
+      final bonded = await _bluetooth.getBondedDevices().timeout(_scanTimeout);
+      if (!mounted) return;
       setState(() {
         _devices = bonded;
         _isScanning = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = 'Failed to scan: $e';
+        _error =
+            e is TimeoutException
+                ? 'Bluetooth scan timed out. Tap Refresh or reopen Bluetooth and return to this page.'
+                : 'Failed to scan: $e';
         _isScanning = false;
       });
     }

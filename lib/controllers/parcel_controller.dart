@@ -803,6 +803,7 @@ class ParcelController extends GetxController {
       amount: amount,
       reference: parcel.Document_No,
       senderPhone: parcel.Sender_Phone,
+      allowPayLater: false,
     );
 
     if (result == null) return;

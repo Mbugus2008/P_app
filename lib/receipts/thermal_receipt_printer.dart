@@ -17,9 +17,10 @@ class ThermalReceiptPrinter {
     'MOBILE: 0757 718 594',
     'MAIN STAGE, BLOCK B, SHOP NO. 1',
     'MAIN OFFICE MOBILE: 0115 118 735',
-    'Betty Business centre'
-        'Opp. Kitengela Mall'
-        '3rd Floor, RM 313',
+    //Todo: Capitalize this.
+    'BETTY BUSINESS CENTRE'
+        'OPP. KITENGELA MALL'
+        '3RD FLOOR, RM 313',
   ];
 
   Future<bool> connect(BluetoothDevice device) async {
@@ -203,6 +204,79 @@ class ThermalReceiptPrinter {
     _printer.printNewLine();
     _printer.printCustom('Thank you for your business!', 0, 1);
     _printer.printCustom(_divider, 0, 1);
+    _printer.printNewLine();
+    _printer.printNewLine();
+    _printer.paperCut();
+  }
+
+  Future<void> printParcelLabel(Parcel parcel) async {
+    final isConnected = await this.isConnected();
+    if (!isConnected) {
+      throw Exception('Printer not connected');
+    }
+
+    final docNo = parcel.Document_No ?? '-';
+
+    // Header - bold
+    _printer.printNewLine();
+    _printer.printCustom('PARCEL LABEL', 1, 1);
+    _printer.printCustom(_divider, 0, 1);
+
+    // Doc No - large and bold
+    _printer.printCustom(docNo.toUpperCase(), 1, 2);
+    _printer.printCustom(_divider, 0, 1);
+
+    // Route
+    final from = (parcel.From ?? '-').trim();
+    final to = (parcel.To ?? '-').trim();
+    _printer.printCustom('FROM: $from', 0, 0);
+    _printer.printCustom('TO:   $to', 0, 0);
+    _printer.printCustom(_divider, 0, 1);
+
+    // Parties
+    _printer.printCustom(
+      'SENDER: ${_partyValue(parcel.Sender_Name, parcel.Sender_Phone)}',
+      0,
+      0,
+    );
+    _printer.printCustom(
+      'RECEIVER: ${_partyValue(parcel.Receiver_Name, parcel.Receiver_Phone)}',
+      0,
+      0,
+    );
+    _printer.printCustom(_divider, 0, 1);
+
+    // Details (compact)
+    if (parcel.Details?.trim().isNotEmpty == true) {
+      for (final line in _wrapText(parcel.Details!.trim())) {
+        _printer.printCustom(line, 0, 0);
+      }
+      _printer.printCustom(_divider, 0, 1);
+    }
+
+    // Payment info
+    final amount = 'KES ${(parcel.Amount_Paid ?? 0.0).toStringAsFixed(0)}';
+    final isPaid = parcel.Paid == true;
+    _printer.printCustom(
+      _labelValue(isPaid ? 'PAID:' : 'TO PAY:', amount),
+      0,
+      0,
+    );
+
+    // Date
+    _printer.printCustom(
+      _labelValue(
+        'DATE:',
+        DateFormat(
+          'dd/MM/yyyy HH:mm',
+        ).format(parcel.Date_sent ?? DateTime.now()),
+      ),
+      0,
+      0,
+    );
+
+    _printer.printCustom(_divider, 0, 1);
+    _printer.printNewLine();
     _printer.printNewLine();
     _printer.printNewLine();
     _printer.paperCut();

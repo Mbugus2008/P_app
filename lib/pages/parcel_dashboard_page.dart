@@ -89,6 +89,13 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     Get.offAll(() => const LoginScreen());
   }
 
+  Future<void> _refreshDashboard() async {
+    await _controller.loadParcels();
+    await _controller.loadPendingBatches();
+    await _controller.loadInTransitBatches();
+    await _controller.loadReceivedParcels();
+  }
+
   Future<void> _showDispatchDialog(BuildContext context, Batches batch) async {
     List<AppVehicle> vehicles = await _dbHelper.getAllVehicles();
     if (vehicles.isEmpty) {
@@ -226,10 +233,22 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         final grouped = _controller.parcelsByStatus;
 
         if (parcels.isEmpty) {
-          return Center(
-            child: Text(
-              'No parcels available yet',
-              style: theme.textTheme.titleMedium,
+          return RefreshIndicator(
+            onRefresh: _refreshDashboard,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 24),
+              children: [
+                SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.5,
+                  child: Center(
+                    child: Text(
+                      'No parcels available yet',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         }
@@ -241,14 +260,10 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
             (grouped[ParcelStatus.collected] ?? const <Parcel>[]).length;
 
         return RefreshIndicator(
-          onRefresh: () async {
-            await _controller.loadParcels();
-            await _controller.loadPendingBatches();
-            await _controller.loadInTransitBatches();
-            await _controller.loadReceivedParcels();
-          },
+          onRefresh: _refreshDashboard,
           child: ListView(
             controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
             children: [
               // Collapsible summary section
@@ -382,11 +397,12 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           parcels: const <Parcel>[],
           isExpanded: _expandedId == 'status-pending',
           onToggle: () => _setExpanded('status-pending'),
+          icon: Icons.schedule,
         );
       }
 
       return Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        key: _getKey('status-pending'),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
@@ -394,48 +410,44 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
             color: getStatusColor(ParcelStatus.pending).withValues(alpha: 0.2),
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: getStatusColor(ParcelStatus.pending),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Pending Batches',
-                  style: theme.textTheme.titleMedium?.copyWith(
+        child: _AccordionTile(
+          isExpanded: _expandedId == 'status-pending',
+          onToggle: () => _setExpanded('status-pending'),
+          title: Row(
+            children: [
+              Icon(
+                Icons.schedule,
+                size: 20,
+                color: getStatusColor(ParcelStatus.pending),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Pending',
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: getStatusColor(
-                      ParcelStatus.pending,
-                    ).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${batches.length} batches',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: getStatusColor(ParcelStatus.pending),
-                      fontWeight: FontWeight.w700,
-                    ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: getStatusColor(
+                    ParcelStatus.pending,
+                  ).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${batches.length} batches',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: getStatusColor(ParcelStatus.pending),
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          children: [
             const SizedBox(height: 8),
             ...batches.map(
               (batch) => Padding(
@@ -510,6 +522,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           parcels: const <Parcel>[],
           isExpanded: _expandedId == 'intransit',
           onToggle: () => _setExpanded('intransit'),
+          icon: Icons.local_shipping,
         );
       }
 
@@ -525,18 +538,11 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           children: [
             Row(
               children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                  ),
-                ),
+                Icon(Icons.local_shipping, size: 20, color: color),
                 const SizedBox(width: 8),
                 Text(
                   'In Transit',
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -628,6 +634,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           parcels: const <Parcel>[],
           isExpanded: _expandedId == 'received',
           onToggle: () => _setExpanded('received'),
+          icon: Icons.inventory_2,
         );
       }
 
@@ -643,18 +650,11 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           children: [
             Row(
               children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                  ),
-                ),
+                Icon(Icons.inventory_2, size: 20, color: color),
                 const SizedBox(width: 8),
                 Text(
                   'Received',
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -755,72 +755,50 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
       final parcels = grouped[ParcelStatus.collected] ?? const <Parcel>[];
       final color = getStatusColor(ParcelStatus.collected);
 
-      if (parcels.isEmpty) {
-        return _StatusSectionCard(
-          key: _getKey('status-collected'),
-          title: 'Collected',
-          color: color,
-          parcels: const <Parcel>[],
-          isExpanded: _expandedId == 'status-collected',
-          onToggle: () => _setExpanded('status-collected'),
-        );
-      }
-
       return Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        key: _getKey('status-collected'),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
+        child: _AccordionTile(
+          isExpanded: _expandedId == 'status-collected',
+          onToggle: () => _setExpanded('status-collected'),
+          title: Row(
+            children: [
+              Icon(Icons.task_alt, size: 20, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   'Collected',
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${parcels.length} parcels',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                    ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${parcels.length} parcels',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          children: [
             const SizedBox(height: 8),
             ...parcels.map(
               (parcel) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _CollectedParcelCard(
-                  parcel: parcel,
-                  onPrint: () => _printParcelForTesting(context, parcel),
-                ),
+                child: _CollectedParcelCard(parcel: parcel),
               ),
             ),
           ],
@@ -1422,10 +1400,9 @@ class _AccordionTile extends StatelessWidget {
 }
 
 class _CollectedParcelCard extends StatelessWidget {
-  const _CollectedParcelCard({required this.parcel, required this.onPrint});
+  const _CollectedParcelCard({required this.parcel});
 
   final Parcel parcel;
-  final VoidCallback onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -1482,21 +1459,6 @@ class _CollectedParcelCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: onPrint,
-              icon: const Icon(Icons.print, size: 18),
-              label: const Text('Print'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -1511,6 +1473,7 @@ class _StatusSectionCard extends StatelessWidget {
     required this.parcels,
     this.isExpanded = false,
     this.onToggle,
+    this.icon,
   });
 
   final String title;
@@ -1518,6 +1481,7 @@ class _StatusSectionCard extends StatelessWidget {
   final List<Parcel> parcels;
   final bool isExpanded;
   final VoidCallback? onToggle;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -1606,16 +1570,19 @@ class _StatusSectionCard extends StatelessWidget {
         onToggle: onToggle ?? () {},
         title: Row(
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-            ),
+            if (icon != null)
+              Icon(icon, size: 20, color: color)
+            else
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+              ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 title,
-                style: theme.textTheme.titleMedium?.copyWith(
+                style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
