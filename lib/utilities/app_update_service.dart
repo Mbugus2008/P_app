@@ -110,6 +110,15 @@ class AppUpdateService extends GetxService {
       downloadProgress.value = 0.0;
       _pendingVersion = version;
 
+      // Notify the user that a new version is downloading
+      Get.snackbar(
+        'Update Available',
+        'Downloading v${version.version} (${version.versionCode})...',
+        snackPosition: SnackPosition.TOP,
+        duration: const Duration(seconds: 3),
+        isDismissible: true,
+      );
+
       final dir = await getApplicationDocumentsDirectory();
       final apkDir = Directory('${dir.path}/apk_downloads');
       if (!await apkDir.exists()) {
