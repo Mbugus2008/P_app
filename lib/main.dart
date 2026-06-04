@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import 'controllers/parcel_controller.dart';
 import 'pages/auth_wrapper.dart';
+import 'utilities/app_update_service.dart';
 import 'utilities/logger.dart';
 import 'utils/app_colors.dart';
 
@@ -10,6 +11,13 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   Get.put(LoggerService());
   Get.put(ParcelController());
+  Get.put(AppUpdateService());
+
+  // Initialize background services after runApp.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Get.find<AppUpdateService>().init();
+  });
+
   runApp(const MyApp());
 }
 

@@ -303,6 +303,23 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                             ),
                           ),
                         ),
+                        if (_hasSavedParcel || _isEditingMode) ...[
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            height: 52,
+                            width: 52,
+                            child: OutlinedButton(
+                              onPressed: _handlePrintReceipt,
+                              style: OutlinedButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Icon(Icons.print, size: 22),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -316,6 +333,17 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
   }
 
   Future<void> _handlePayAction() async {
+    // Require the parcel to be saved before accepting payment
+    if (!_hasSavedParcel && !_isEditingMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Save the parcel first before making a payment'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     final amount = double.tryParse(controller.amountPaidController.text) ?? 0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -367,6 +395,37 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         });
         await controller.updateParcel(controller.parcel!);
       }
+    }
+  }
+
+  Future<void> _handlePrintReceipt() async {
+    if (controller.parcel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No parcel data to print'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Mark as printed when the print dialog is opened
+    if (!controller.parcel!.receiptPrinted) {
+      setState(() {
+        controller.parcel!.receiptPrinted = true;
+      });
+      await controller.updateParcel(controller.parcel!);
+    }
+
+    await showPrintReceiptDialog(
+      context: context,
+      parcel: controller.parcel!,
+      onSkip: () {},
+    );
+
+    // Dialog stays open after prints; refresh parcel state when closed
+    if (mounted && controller.parcel != null) {
+      await controller.updateParcel(controller.parcel!);
     }
   }
 
@@ -458,6 +517,16 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 controller.senderNameController,
               ),
           decoration: const InputDecoration(prefixText: 'Ksh '),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Amount paid is required';
+            }
+            final amount = double.tryParse(value.trim());
+            if (amount == null || amount <= 0) {
+              return 'Enter a valid amount';
+            }
+            return null;
+          },
         ),
         const SizedBox(height: 16),
       ],
@@ -707,6 +776,12 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
             labelText: 'Parcel Description',
             prefixIcon: Icon(Icons.description_outlined),
           ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Parcel description is required';
+            }
+            return null;
+          },
           onChanged: (value) => controller.parcel!.Details = value,
         ),
         const SizedBox(height: 16),

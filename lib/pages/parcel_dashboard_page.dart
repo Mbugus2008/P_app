@@ -13,6 +13,7 @@ import '../pages/add_user_page.dart';
 import '../pages/addeditparcel.dart';
 import '../pages/login.dart';
 import '../pages/settings_page.dart';
+import '../utilities/app_update_service.dart';
 import '../utilities/remember_me_helper.dart';
 import '../utilities/status_color.dart';
 import '../utils/app_colors.dart';
@@ -26,17 +27,28 @@ class ParcelDashboardPage extends StatefulWidget {
 
 class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   bool _isSummaryExpanded = true;
-  String? _expandedId;
+  final _sectionExpanded = ''.obs;
+  final _batchExpanded = ''.obs;
   String _appVersion = '';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   final Map<String, GlobalKey> _sectionKeys = {};
   final DatabaseHelper _dbHelper = DatabaseHelper();
 
+  late final AppUpdateService _updateService;
+
   @override
   void initState() {
     super.initState();
+    _updateService = Get.find<AppUpdateService>();
     _loadAppVersion();
+
+    // Listen for when the download finishes to prompt installation.
+    _updateService.updateReady.listen((ready) {
+      if (ready && mounted) {
+        _promptInstallUpdate();
+      }
+    });
   }
 
   Future<void> _loadAppVersion() async {
@@ -51,16 +63,58 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
   }
 
+  Future<void> _promptInstallUpdate() async {
+    final version = _updateService.pendingVersion;
+    if (version == null || !mounted) return;
+
+    final dialog = AlertDialog(
+      title: Text('Update v${version.version} Ready'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('A new version is ready to install.'),
+          if (version.releaseNotes != null &&
+              version.releaseNotes!.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              version.releaseNotes!,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        if (!version.forceUpdate)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Later'),
+          ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            _updateService.installUpdate(context);
+          },
+          child: const Text('Install Now'),
+        ),
+      ],
+    );
+
+    // Small delay to ensure the download progress indicator is seen first.
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) {
+      await showDialog(context: context, builder: (_) => dialog);
+    }
+  }
+
   GlobalKey _getKey(String id) {
     return _sectionKeys.putIfAbsent(id, () => GlobalKey());
   }
 
-  void _setExpanded(String? id) {
-    final wasExpanded = _expandedId == id;
-    setState(() {
-      _expandedId = wasExpanded ? null : id;
-    });
-    if (!wasExpanded && id != null) {
+  void _toggleSection(String id) {
+    final wasExpanded = _sectionExpanded.value == id;
+    _sectionExpanded.value = wasExpanded ? '' : id;
+    if (!wasExpanded && id.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final key = _sectionKeys[id];
         if (key?.currentContext != null) {
@@ -73,6 +127,11 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         }
       });
     }
+  }
+
+  void _toggleBatch(String id) {
+    final wasExpanded = _batchExpanded.value == id;
+    _batchExpanded.value = wasExpanded ? '' : id;
   }
 
   ParcelController get _controller => Get.find<ParcelController>();
@@ -223,14 +282,91 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         ),
         backgroundColor: AppColors.secondary,
         foregroundColor: Colors.white,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: Obx(() {
+            final progress = _updateService.downloadProgress.value;
+            if (progress < 0) return const SizedBox.shrink();
+
+            if (progress == -2) {
+              // Checking for updates
+              return Container(
+                height: 2,
+                color: Colors.white24,
+                child: const LinearProgressIndicator(
+                  backgroundColor: Colors.transparent,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                ),
+              );
+            }
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              color: AppColors.secondary,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.system_update,
+                        size: 14,
+                        color: Colors.white70,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          progress >= 1.0
+                              ? 'Update ready to install'
+                              : 'Downloading update... ${(progress * 100).toInt()}%',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${(progress * 100).toInt()}%',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress.clamp(0.0, 1.0),
+                      backgroundColor: Colors.white24,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
+                      minHeight: 4,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                ],
+              ),
+            );
+          }),
+        ),
       ),
       body: Obx(() {
         if (_controller.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
 
+        // Read ALL reactive values here so the single Obx subscribes to everything
         final parcels = _controller.parcels;
         final grouped = _controller.parcelsByStatus;
+        final sectionExpanded = _sectionExpanded.value;
+        final batchExpanded = _batchExpanded.value;
+        final pendingBatches = _controller.pendingBatches;
+        final inTransitBatches = _controller.inTransitBatches;
+        final receivedParcels = _controller.receivedParcels;
 
         if (parcels.isEmpty) {
           return RefreshIndicator(
@@ -253,7 +389,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           );
         }
 
-        final pendingBatches = _controller.pendingBatchCount;
+        final pendingBatchesCount = _controller.pendingBatchCount;
         final inTransit = _controller.inTransitBatchCount;
         final received = _controller.receivedParcelCount;
         final collected =
@@ -312,7 +448,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                           children: [
                             _MetricTile(
                               title: 'Pending Batches',
-                              value: pendingBatches.toString(),
+                              value: pendingBatchesCount.toString(),
                               icon: Icons.schedule,
                               color: getStatusColor(ParcelStatus.pending),
                             ),
@@ -349,16 +485,31 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
               ),
               const SizedBox(height: 10),
               // Pending batches section
-              _buildPendingBatchesSection(theme),
+              _buildPendingBatchesSection(
+                theme,
+                pendingBatches,
+                sectionExpanded,
+                batchExpanded,
+              ),
               const SizedBox(height: 10),
               // In Transit batches section
-              _buildInTransitSection(theme),
+              _buildInTransitSection(
+                theme,
+                inTransitBatches,
+                sectionExpanded,
+                batchExpanded,
+              ),
               const SizedBox(height: 10),
               // Received parcels section
-              _buildReceivedSection(theme, context),
+              _buildReceivedSection(
+                theme,
+                context,
+                receivedParcels,
+                sectionExpanded,
+              ),
               const SizedBox(height: 10),
               // Collected section
-              _buildCollectedSection(theme),
+              _buildCollectedSection(theme, grouped, sectionExpanded),
             ],
           ),
         );
@@ -385,208 +536,208 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     );
   }
 
-  Widget _buildPendingBatchesSection(ThemeData theme) {
-    return Obx(() {
-      final batches = _controller.pendingBatches;
-
-      if (batches.isEmpty) {
-        return _StatusSectionCard(
-          key: _getKey('status-pending'),
-          title: 'Pending',
-          color: getStatusColor(ParcelStatus.pending),
-          parcels: const <Parcel>[],
-          isExpanded: _expandedId == 'status-pending',
-          onToggle: () => _setExpanded('status-pending'),
-          icon: Icons.schedule,
-        );
-      }
-
-      return Container(
+  Widget _buildPendingBatchesSection(
+    ThemeData theme,
+    List<Batches> batches,
+    String sectionExpanded,
+    String batchExpanded,
+  ) {
+    if (batches.isEmpty) {
+      return _StatusSectionCard(
         key: _getKey('status-pending'),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: getStatusColor(ParcelStatus.pending).withValues(alpha: 0.2),
-          ),
+        title: 'Pending',
+        color: getStatusColor(ParcelStatus.pending),
+        parcels: const <Parcel>[],
+        isExpanded: sectionExpanded == 'status-pending',
+        onToggle: () => _toggleSection('status-pending'),
+        icon: Icons.schedule,
+      );
+    }
+
+    return Container(
+      key: _getKey('status-pending'),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: getStatusColor(ParcelStatus.pending).withValues(alpha: 0.2),
         ),
-        child: _AccordionTile(
-          isExpanded: _expandedId == 'status-pending',
-          onToggle: () => _setExpanded('status-pending'),
-          title: Row(
-            children: [
-              Icon(
-                Icons.schedule,
-                size: 20,
-                color: getStatusColor(ParcelStatus.pending),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Pending',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+      ),
+      child: _AccordionTile(
+        isExpanded: sectionExpanded == 'status-pending',
+        onToggle: () => _toggleSection('status-pending'),
+        title: Row(
+          children: [
+            Icon(
+              Icons.schedule,
+              size: 20,
+              color: getStatusColor(ParcelStatus.pending),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Pending',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
               ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: getStatusColor(
+                  ParcelStatus.pending,
+                ).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${batches.length} batches',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: getStatusColor(ParcelStatus.pending),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        children: [
+          const SizedBox(height: 8),
+          ...batches.map(
+            (batch) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _BatchCard(
+                key: _getKey('batch-${batch.batchNo}'),
+                batch: batch,
+                parcels:
+                    _controller.parcels
+                        .where((p) => p.Batch_No == batch.batchNo)
+                        .toList(),
+                onDispatch: () => _showDispatchDialog(context, batch),
+                isExpanded: batchExpanded == 'batch-${batch.batchNo}',
+                onToggle: () => _toggleBatch('batch-${batch.batchNo}'),
+                onEditParcel: (parcel) async {
+                  final result = await Get.to(
+                    () => AddEditParcelPage(parcel: parcel),
+                  );
+                  if (result == true) {
+                    await _controller.loadParcels();
+                    await _controller.loadPendingBatches();
+                  }
+                },
+                onDeleteParcel: (parcel) async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder:
+                        (ctx) => AlertDialog(
+                          title: const Text('Delete Parcel'),
+                          content: Text(
+                            'Are you sure you want to delete ${parcel.Document_No ?? 'this parcel'}?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.red,
+                              ),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                  );
+                  if (confirmed == true) {
+                    await _controller.deleteParcel(parcel.Document_No ?? '');
+                    await _controller.loadPendingBatches();
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInTransitSection(
+    ThemeData theme,
+    List<Batches> batches,
+    String sectionExpanded,
+    String batchExpanded,
+  ) {
+    final color = getStatusColor(ParcelStatus.inTransit);
+
+    if (batches.isEmpty) {
+      return _StatusSectionCard(
+        key: _getKey('intransit'),
+        title: 'In Transit',
+        color: color,
+        parcels: const <Parcel>[],
+        isExpanded: sectionExpanded == 'intransit',
+        onToggle: () => _toggleSection('intransit'),
+        icon: Icons.local_shipping,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.local_shipping, size: 20, color: color),
+              const SizedBox(width: 8),
+              Text(
+                'In Transit',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: getStatusColor(
-                    ParcelStatus.pending,
-                  ).withValues(alpha: 0.15),
+                  color: color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   '${batches.length} batches',
                   style: theme.textTheme.labelMedium?.copyWith(
-                    color: getStatusColor(ParcelStatus.pending),
+                    color: color,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
-          children: [
-            const SizedBox(height: 8),
-            ...batches.map(
-              (batch) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _BatchCard(
-                  key: _getKey('batch-${batch.batchNo}'),
-                  batch: batch,
-                  parcels:
-                      _controller.parcels
-                          .where((p) => p.Batch_No == batch.batchNo)
-                          .toList(),
-                  onDispatch: () => _showDispatchDialog(context, batch),
-                  isExpanded: _expandedId == 'batch-${batch.batchNo}',
-                  onToggle: () => _setExpanded('batch-${batch.batchNo}'),
-                  onEditParcel: (parcel) async {
-                    final result = await Get.to(
-                      () => AddEditParcelPage(parcel: parcel),
-                    );
-                    if (result == true) {
-                      await _controller.loadParcels();
-                      await _controller.loadPendingBatches();
-                    }
-                  },
-                  onDeleteParcel: (parcel) async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder:
-                          (ctx) => AlertDialog(
-                            title: const Text('Delete Parcel'),
-                            content: Text(
-                              'Are you sure you want to delete ${parcel.Document_No ?? 'this parcel'}?',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('Cancel'),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.red,
-                                ),
-                                child: const Text('Delete'),
-                              ),
-                            ],
-                          ),
-                    );
-                    if (confirmed == true) {
-                      await _controller.deleteParcel(parcel.Document_No ?? '');
-                      await _controller.loadPendingBatches();
-                    }
-                  },
-                ),
+          const SizedBox(height: 8),
+          ...batches.map(
+            (batch) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _InTransitBatchCard(
+                key: _getKey('intransit-${batch.batchNo}'),
+                batch: batch,
+                parcels:
+                    _controller.parcels
+                        .where((p) => p.Batch_No == batch.batchNo)
+                        .toList(),
+                onReceive: () => _showReceiveConfirm(context, batch),
+                isExpanded: batchExpanded == 'intransit-${batch.batchNo}',
+                onToggle: () => _toggleBatch('intransit-${batch.batchNo}'),
               ),
             ),
-          ],
-        ),
-      );
-    });
-  }
-
-  Widget _buildInTransitSection(ThemeData theme) {
-    return Obx(() {
-      final batches = _controller.inTransitBatches;
-      final color = getStatusColor(ParcelStatus.inTransit);
-
-      if (batches.isEmpty) {
-        return _StatusSectionCard(
-          key: _getKey('intransit'),
-          title: 'In Transit',
-          color: color,
-          parcels: const <Parcel>[],
-          isExpanded: _expandedId == 'intransit',
-          onToggle: () => _setExpanded('intransit'),
-          icon: Icons.local_shipping,
-        );
-      }
-
-      return Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.local_shipping, size: 20, color: color),
-                const SizedBox(width: 8),
-                Text(
-                  'In Transit',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${batches.length} batches',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...batches.map(
-              (batch) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _InTransitBatchCard(
-                  key: _getKey('intransit-${batch.batchNo}'),
-                  batch: batch,
-                  parcels:
-                      _controller.parcels
-                          .where((p) => p.Batch_No == batch.batchNo)
-                          .toList(),
-                  onReceive: () => _showReceiveConfirm(context, batch),
-                  isExpanded: _expandedId == 'intransit-${batch.batchNo}',
-                  onToggle: () => _setExpanded('intransit-${batch.batchNo}'),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    });
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showReceiveConfirm(BuildContext ctx, Batches batch) async {
@@ -621,79 +772,78 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
   }
 
-  Widget _buildReceivedSection(ThemeData theme, BuildContext context) {
-    return Obx(() {
-      final parcels = _controller.receivedParcels;
-      final color = getStatusColor(ParcelStatus.received);
+  Widget _buildReceivedSection(
+    ThemeData theme,
+    BuildContext context,
+    List<Parcel> parcels,
+    String sectionExpanded,
+  ) {
+    final color = getStatusColor(ParcelStatus.received);
 
-      if (parcels.isEmpty) {
-        return _StatusSectionCard(
-          key: _getKey('received'),
-          title: 'Received',
-          color: color,
-          parcels: const <Parcel>[],
-          isExpanded: _expandedId == 'received',
-          onToggle: () => _setExpanded('received'),
-          icon: Icons.inventory_2,
-        );
-      }
+    if (parcels.isEmpty) {
+      return _StatusSectionCard(
+        key: _getKey('received'),
+        title: 'Received',
+        color: color,
+        parcels: const <Parcel>[],
+        isExpanded: sectionExpanded == 'received',
+        onToggle: () => _toggleSection('received'),
+        icon: Icons.inventory_2,
+      );
+    }
 
-      return Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.inventory_2, size: 20, color: color),
-                const SizedBox(width: 8),
-                Text(
-                  'Received',
-                  style: theme.textTheme.titleLarge?.copyWith(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.inventory_2, size: 20, color: color),
+              const SizedBox(width: 8),
+              Text(
+                'Received',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${parcels.length} parcels',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: color,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${parcels.length} parcels',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ...parcels.map(
-              (parcel) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _ReceivedParcelCard(
-                  parcel: parcel,
-                  onPay: () => _controller.payForParcel(context, parcel),
-                  onCollect: () => _showCollectConfirm(context, parcel),
-                  onPrint: () => _printParcelForTesting(context, parcel),
-                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...parcels.map(
+            (parcel) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _ReceivedParcelCard(
+                parcel: parcel,
+                onPay: () => _controller.payForParcel(context, parcel),
+                onCollect: () => _showCollectConfirm(context, parcel),
+                onPrint: () => _printParcelForTesting(context, parcel),
               ),
             ),
-          ],
-        ),
-      );
-    });
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showCollectConfirm(BuildContext ctx, Parcel parcel) async {
@@ -749,62 +899,63 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
   }
 
-  Widget _buildCollectedSection(ThemeData theme) {
-    return Obx(() {
-      final grouped = _controller.parcelsByStatus;
-      final parcels = grouped[ParcelStatus.collected] ?? const <Parcel>[];
-      final color = getStatusColor(ParcelStatus.collected);
+  Widget _buildCollectedSection(
+    ThemeData theme,
+    Map<ParcelStatus, List<Parcel>> grouped,
+    String sectionExpanded,
+  ) {
+    final parcels = grouped[ParcelStatus.collected] ?? const <Parcel>[];
+    final color = getStatusColor(ParcelStatus.collected);
 
-      return Container(
-        key: _getKey('status-collected'),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
-        ),
-        child: _AccordionTile(
-          isExpanded: _expandedId == 'status-collected',
-          onToggle: () => _setExpanded('status-collected'),
-          title: Row(
-            children: [
-              Icon(Icons.task_alt, size: 20, color: color),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Collected',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${parcels.length} parcels',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
+    return Container(
+      key: _getKey('status-collected'),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: _AccordionTile(
+        isExpanded: sectionExpanded == 'status-collected',
+        onToggle: () => _toggleSection('status-collected'),
+        title: Row(
           children: [
-            const SizedBox(height: 8),
-            ...parcels.map(
-              (parcel) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _CollectedParcelCard(parcel: parcel),
+            Icon(Icons.task_alt, size: 20, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Collected',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${parcels.length} parcels',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
         ),
-      );
-    });
+        children: [
+          const SizedBox(height: 8),
+          ...parcels.map(
+            (parcel) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _CollectedParcelCard(parcel: parcel),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

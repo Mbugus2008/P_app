@@ -9,7 +9,6 @@ class ThermalReceiptPrinter {
   static final String _divider = '-' * _lineWidthChars;
 
   static const List<String> _receiptHeaderLines = [
-    'PARCEL CASH RECEIPT',
     'REMBO CLASSIC SERVICES LTD',
     'For all your quality services & safety',
     'KITENGELA BOOKING OFFICE',
@@ -17,10 +16,9 @@ class ThermalReceiptPrinter {
     'MOBILE: 0757 718 594',
     'MAIN STAGE, BLOCK B, SHOP NO. 1',
     'MAIN OFFICE MOBILE: 0115 118 735',
-    //Todo: Capitalize this.
-    'BETTY BUSINESS CENTRE'
-        'OPP. KITENGELA MALL'
-        '3RD FLOOR, RM 313',
+    'BETTY BUSINESS CENTRE',
+    'OPP. KITENGELA MALL',
+    '3RD FLOOR, RM 313',
   ];
 
   Future<bool> connect(BluetoothDevice device) async {
@@ -217,53 +215,23 @@ class ThermalReceiptPrinter {
 
     final docNo = parcel.Document_No ?? '-';
 
-    // Header - bold
+    // Header - company info
     _printer.printNewLine();
-    _printer.printCustom('PARCEL LABEL', 1, 1);
-    _printer.printCustom(_divider, 0, 1);
-
-    // Doc No - large and bold
-    _printer.printCustom(docNo.toUpperCase(), 1, 2);
-    _printer.printCustom(_divider, 0, 1);
-
-    // Route
-    final from = (parcel.From ?? '-').trim();
-    final to = (parcel.To ?? '-').trim();
-    _printer.printCustom('FROM: $from', 0, 0);
-    _printer.printCustom('TO:   $to', 0, 0);
-    _printer.printCustom(_divider, 0, 1);
-
-    // Parties
-    _printer.printCustom(
-      'SENDER: ${_partyValue(parcel.Sender_Name, parcel.Sender_Phone)}',
-      0,
-      0,
-    );
-    _printer.printCustom(
-      'RECEIVER: ${_partyValue(parcel.Receiver_Name, parcel.Receiver_Phone)}',
-      0,
-      0,
-    );
-    _printer.printCustom(_divider, 0, 1);
-
-    // Details (compact)
-    if (parcel.Details?.trim().isNotEmpty == true) {
-      for (final line in _wrapText(parcel.Details!.trim())) {
-        _printer.printCustom(line, 0, 0);
-      }
-      _printer.printCustom(_divider, 0, 1);
+    _printer.printCustom(_receiptHeaderLines[0], 1, 1);
+    for (final line in _receiptHeaderLines.skip(1)) {
+      _printer.printCustom(line, 0, 1);
     }
+    _printer.printCustom(_divider, 0, 1);
 
-    // Payment info
-    final amount = 'KES ${(parcel.Amount_Paid ?? 0.0).toStringAsFixed(0)}';
-    final isPaid = parcel.Paid == true;
-    _printer.printCustom(
-      _labelValue(isPaid ? 'PAID:' : 'TO PAY:', amount),
-      0,
-      0,
-    );
+    // Main title - "PARCEL LABEL" centred and bigger
+    _printer.printCustom('PARCEL LABEL', 2, 1);
+    _printer.printCustom(_divider, 0, 1);
 
-    // Date
+    // Doc No - extra large, centred and bold
+    _printer.printCustom(docNo.toUpperCase(), 3, 1);
+    _printer.printCustom(_divider, 0, 1);
+
+    // Parcel info
     _printer.printCustom(
       _labelValue(
         'DATE:',
@@ -274,6 +242,83 @@ class ThermalReceiptPrinter {
       0,
       0,
     );
+    _printer.printCustom(_divider, 0, 1);
+
+    // Route
+    _printer.printCustom(_labelValue('ROUTE:', 'KITENGELA => NAIROBI'), 0, 0);
+    _printer.printCustom(_divider, 0, 1);
+
+    // Parties
+    _printer.printCustom(
+      _labelValue(
+        'SENDER:',
+        _partyValue(parcel.Sender_Name, parcel.Sender_Phone),
+      ),
+      0,
+      0,
+    );
+    _printer.printCustom(
+      _labelValue(
+        'RECEIVER:',
+        _partyValue(parcel.Receiver_Name, parcel.Receiver_Phone),
+      ),
+      0,
+      0,
+    );
+    _printer.printCustom(_divider, 0, 1);
+
+    // Parcel details
+    final hasDetailNote = parcel.Details?.trim().isNotEmpty == true;
+    final detailItems = parcel.parcelDetails;
+    if (hasDetailNote || detailItems.isNotEmpty) {
+      _printer.printCustom('DETAILS:', 0, 0);
+      if (hasDetailNote) {
+        for (final line in _wrapText(parcel.Details!.trim())) {
+          _printer.printCustom(line, 0, 0);
+        }
+      }
+      for (final item in detailItems) {
+        final qty = item.No_Of_Items ?? 0;
+        final desc = (item.Description ?? '').trim();
+        final amount = item.Amount ?? 0.0;
+        final label = '${qty > 0 ? '$qty x ' : ''}${desc.isEmpty ? '-' : desc}';
+        for (final line in _wrapText(
+          amount > 0 ? '$label  KES ${amount.toStringAsFixed(0)}' : label,
+        )) {
+          _printer.printCustom(line, 0, 0);
+        }
+        final remarks = (item.Remarks ?? '').trim();
+        if (remarks.isNotEmpty) {
+          for (final line in _wrapText('  ($remarks)')) {
+            _printer.printCustom(line, 0, 0);
+          }
+        }
+      }
+      _printer.printCustom(_divider, 0, 1);
+    }
+
+    // Payment
+    final isPayLater =
+        parcel.paymentMethod == PaymentMethod.pending || parcel.Paid != true;
+    final amountText = 'KES ${(parcel.Amount_Paid ?? 0.0).toStringAsFixed(0)}';
+    if (isPayLater) {
+      _printer.printCustom(_labelValue('TO PAY:', amountText), 0, 0);
+      _printer.printCustom(_labelValue('STATUS:', 'PAY ON COLLECTION'), 0, 0);
+    } else {
+      _printer.printCustom(_labelValue('PAID:', amountText), 0, 0);
+      _printer.printCustom(
+        _labelValue(
+          'METHOD:',
+          parcel.paymentMethod == PaymentMethod.mpesa ? 'M-Pesa' : 'Cash',
+        ),
+        0,
+        0,
+      );
+      if (parcel.paymentMethod == PaymentMethod.mpesa &&
+          parcel.mpesaCode?.isNotEmpty == true) {
+        _printer.printCustom(_labelValue('MPESA:', parcel.mpesaCode!), 0, 0);
+      }
+    }
 
     _printer.printCustom(_divider, 0, 1);
     _printer.printNewLine();

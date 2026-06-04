@@ -141,7 +141,10 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
             ),
       );
       if (result == true && mounted) {
-        Navigator.of(context).pop(true);
+        setState(() {
+          _isPrinting = false;
+          _error = null;
+        });
       }
       return;
     }
@@ -169,14 +172,22 @@ class _PrintReceiptDialogState extends State<PrintReceiptDialog> {
                 ),
           );
           if (result == true && mounted) {
-            Navigator.of(context).pop(true);
+            setState(() {
+              _isPrinting = false;
+              _error = null;
+            });
           }
         }
         return;
       }
 
       await _doPrint();
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        setState(() {
+          _isPrinting = false;
+          _error = null;
+        });
+      }
     } catch (e) {
       setState(() {
         _error = 'Print failed: $e';

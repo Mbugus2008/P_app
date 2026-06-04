@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:trimline_parcel/models/app_location.dart';
 import 'package:trimline_parcel/models/app_user.dart';
 import 'package:trimline_parcel/models/app_vehicle.dart';
+import 'package:trimline_parcel/models/app_version_info.dart';
 import 'package:trimline_parcel/models/batches.dart';
 import 'package:trimline_parcel/models/parcel_model.dart';
 import 'package:trimline_parcel/utilities/logger.dart';
@@ -33,6 +34,45 @@ class ApiClient extends ChangeNotifier {
     'X-Client-Identifier': "REMBOCLASIC",
   };
 
+  /// Retries the [request] up to [maxRetries] times if the server returns
+  /// 502 (Bad Gateway) or 503 (Service Unavailable) — typical during deploys.
+  Future<http.Response> _withRetry(
+    Future<http.Response> Function() request, {
+    int maxRetries = 3,
+    Duration delay = const Duration(seconds: 2),
+  }) async {
+    for (var attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        final response = await request();
+        if (response.statusCode != 502 && response.statusCode != 503) {
+          return response;
+        }
+        if (attempt < maxRetries) {
+          logger.info(
+            'Server ${response.statusCode} — retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries)',
+          );
+          await Future.delayed(delay);
+        } else {
+          logger.warning(
+            'Server still returning ${response.statusCode} after $maxRetries attempts',
+          );
+          return response;
+        }
+      } catch (_) {
+        if (attempt < maxRetries) {
+          logger.info(
+            'Request failed — retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries)',
+          );
+          await Future.delayed(delay);
+        } else {
+          rethrow;
+        }
+      }
+    }
+    // Unreachable but satisfies return type.
+    return await request();
+  }
+
   Future<http.Response> postdata(
     String url,
     String? data, {
@@ -43,8 +83,9 @@ class ApiClient extends ChangeNotifier {
       String urls = '$baseUrl$url';
       logger.info(urls);
       logger.info("out: $data");
-
-      r = await http.post(Uri.parse(urls), body: data, headers: _headers);
+      r = await _withRetry(
+        () => http.post(Uri.parse(urls), body: data, headers: _headers),
+      );
 
       if ((r.statusCode == 307 || r.statusCode == 308) &&
           r.headers['location'] != null) {
@@ -73,8 +114,9 @@ class ApiClient extends ChangeNotifier {
       String urls = '$baseUrl$url';
       logger.info(urls);
       logger.info("out: $data");
-
-      r = await http.put(Uri.parse(urls), body: data, headers: _headers);
+      r = await _withRetry(
+        () => http.put(Uri.parse(urls), body: data, headers: _headers),
+      );
 
       if ((r.statusCode == 307 || r.statusCode == 308) &&
           r.headers['location'] != null) {
@@ -114,8 +156,7 @@ class ApiClient extends ChangeNotifier {
     try {
       String urls = '$baseUrl$url';
       logger.info(urls);
-
-      r = await http.get(Uri.parse(urls), headers: _headers);
+      r = await _withRetry(() => http.get(Uri.parse(urls), headers: _headers));
       logger.info('url: $url, status code: ${r.statusCode}');
       logger.info('url: ${url}body: ${r.body}');
 
@@ -135,8 +176,9 @@ class ApiClient extends ChangeNotifier {
     try {
       String urls = '$baseUrl$url';
       logger.info(urls);
-
-      r = await http.delete(Uri.parse(urls), headers: _headers);
+      r = await _withRetry(
+        () => http.delete(Uri.parse(urls), headers: _headers),
+      );
       logger.info('url: $url, status code: ${r.statusCode}');
       logger.info('url: ${url}body: ${r.body}');
 
@@ -678,6 +720,43 @@ class ApiClient extends ChangeNotifier {
       'contents':
           _readEnvelopeValue(decoded, 'Contents') as Map<String, dynamic>?,
     };
+  }
+
+  // ==================== App Version ====================
+
+  /// Fetches the latest Android app version info from the server.
+  Future<AppVersionInfo?> fetchAppVersionInfo() async {
+    final appUrl = '${_baseUrlForApp()}api/AppUpdate/android';
+    try {
+      final response = await _withRetry(
+        () => http.get(
+          Uri.parse(appUrl),
+          headers: {'Content-Type': 'application/json'},
+        ),
+      );
+
+      if (response.statusCode != 200) return null;
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
+        decoded,
+        (c) => AppVersionInfo.fromJson(c as Map<String, dynamic>),
+      );
+
+      return envelope.isSuccess ? envelope.contents : null;
+    } catch (e) {
+      logger.error('Failed to fetch app version', error: e);
+      return null;
+    }
+  }
+
+  /// Derives the base URL (without /api/Parcel/ suffix) for non-Parcel endpoints.
+  String _baseUrlForApp() {
+    // baseUrl is like "https://nav.trimline.co.ke:4013/api/Parcel/"
+    // We need "https://nav.trimline.co.ke:4013/"
+    final idx = baseUrl.indexOf('/api/');
+    if (idx > 0) return baseUrl.substring(0, idx + 1);
+    return baseUrl;
   }
 
   // ==================== SMS ====================
