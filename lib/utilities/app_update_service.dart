@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -34,6 +33,7 @@ class AppUpdateService extends GetxService {
   Future<String> checkForUpdate() => _checkForUpdate();
 
   Future<String> _checkForUpdate() async {
+    HttpClient? client;
     try {
       downloadProgress.value = -2;
 
@@ -41,16 +41,21 @@ class AppUpdateService extends GetxService {
       final localCode = int.tryParse(local.buildNumber) ?? 1;
 
       final uri = Uri.parse('$_baseUrl/api/AppUpdate/android');
-      final response = await http
-          .get(uri, headers: {'Content-Type': 'application/json'})
-          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode != 200) {
+      // Accept self-signed certificate on nav.trimline.co.ke
+      client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
+
+      final req = await client.getUrl(uri);
+      req.headers.set('Content-Type', 'application/json');
+      final resp = await req.close().timeout(const Duration(seconds: 15));
+
+      if (resp.statusCode != 200) {
         downloadProgress.value = -1;
         return 'error';
       }
 
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final body = await resp.transform(utf8.decoder).join();
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
       final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
         decoded,
         (c) => AppVersionInfo.fromJson(c as Map<String, dynamic>),
@@ -72,10 +77,13 @@ class AppUpdateService extends GetxService {
     } catch (e) {
       downloadProgress.value = -1;
       return 'error';
+    } finally {
+      client?.close();
     }
   }
 
   Future<void> _downloadApk(AppVersionInfo version) async {
+    HttpClient? client;
     try {
       isDownloading.value = true;
       updateReady.value = false;
@@ -104,44 +112,40 @@ class AppUpdateService extends GetxService {
       }
 
       final uri = Uri.parse(version.downloadUrl);
-      final client = http.Client();
-      try {
-        final request = http.Request('GET', uri);
-        final response = await client.send(request);
+      client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
 
-        if (response.statusCode != 200) {
-          throw HttpException(
-            'Download failed: HTTP ${response.statusCode}',
-            uri: uri,
-          );
-        }
+      final req = await client.getUrl(uri);
+      final resp = await req.close();
 
-        final totalBytes = response.contentLength ?? -1;
-        var receivedBytes = 0;
-        final sink = file.openWrite();
-
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          receivedBytes += chunk.length;
-          if (totalBytes > 0) {
-            downloadProgress.value = receivedBytes / totalBytes;
-          }
-        }
-
-        await sink.flush();
-        await sink.close();
-
-        _downloadedApkPath = filePath;
-        downloadProgress.value = 1.0;
-        updateReady.value = true;
-      } finally {
-        client.close();
+      if (resp.statusCode != 200) {
+        downloadProgress.value = -1;
+        return;
       }
+
+      final totalBytes = resp.contentLength;
+      var receivedBytes = 0;
+      final sink = file.openWrite();
+
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        receivedBytes += chunk.length;
+        if (totalBytes > 0) {
+          downloadProgress.value = receivedBytes / totalBytes;
+        }
+      }
+
+      await sink.flush();
+      await sink.close();
+
+      _downloadedApkPath = filePath;
+      downloadProgress.value = 1.0;
+      updateReady.value = true;
     } catch (e) {
       downloadProgress.value = -1;
       _downloadedApkPath = null;
     } finally {
       isDownloading.value = false;
+      client?.close();
     }
   }
 
