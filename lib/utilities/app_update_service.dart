@@ -31,6 +31,11 @@ class AppUpdateService extends GetxService {
     );
   }
 
+  /// Public method so the user can manually trigger an update check.
+  Future<void> checkForUpdate() async {
+    await _checkForUpdate();
+  }
+
   Future<void> _checkForUpdate() async {
     try {
       downloadProgress.value = -2; // shows checking bar on dashboard

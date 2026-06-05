@@ -248,6 +248,20 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                   },
                 ),
               const Divider(),
+              ListTile(
+                leading: const Icon(Icons.system_update),
+                title: const Text('Check for Updates'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _updateService.checkForUpdate();
+                  Get.snackbar(
+                    'Checking',
+                    'Looking for updates...',
+                    snackPosition: SnackPosition.BOTTOM,
+                    duration: const Duration(seconds: 2),
+                  );
+                },
+              ),
               if (_appVersion.isNotEmpty)
                 ListTile(
                   leading: const Icon(Icons.info_outline),
