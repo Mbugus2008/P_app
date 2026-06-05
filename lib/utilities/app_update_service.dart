@@ -31,14 +31,11 @@ class AppUpdateService extends GetxService {
     );
   }
 
-  /// Public method so the user can manually trigger an update check.
-  Future<void> checkForUpdate() async {
-    await _checkForUpdate();
-  }
+  Future<String> checkForUpdate() => _checkForUpdate();
 
-  Future<void> _checkForUpdate() async {
+  Future<String> _checkForUpdate() async {
     try {
-      downloadProgress.value = -2; // shows checking bar on dashboard
+      downloadProgress.value = -2;
 
       final local = await PackageInfo.fromPlatform();
       final localCode = int.tryParse(local.buildNumber) ?? 1;
@@ -50,7 +47,7 @@ class AppUpdateService extends GetxService {
 
       if (response.statusCode != 200) {
         downloadProgress.value = -1;
-        return;
+        return 'error';
       }
 
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -61,19 +58,20 @@ class AppUpdateService extends GetxService {
 
       if (!envelope.isSuccess || envelope.contents == null) {
         downloadProgress.value = -1;
-        return;
+        return 'error';
       }
 
       final remote = envelope.contents!;
       if (remote.downloadUrl.isEmpty || remote.versionCode <= localCode) {
         downloadProgress.value = -1;
-        return;
+        return 'up_to_date';
       }
 
-      // Start download
       await _downloadApk(remote);
+      return 'update_found';
     } catch (e) {
       downloadProgress.value = -1;
+      return 'error';
     }
   }
 

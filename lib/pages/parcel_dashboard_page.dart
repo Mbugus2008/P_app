@@ -251,15 +251,41 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
               ListTile(
                 leading: const Icon(Icons.system_update),
                 title: const Text('Check for Updates'),
-                onTap: () {
+                onTap: () async {
                   Navigator.of(context).pop();
-                  _updateService.checkForUpdate();
-                  Get.snackbar(
-                    'Checking',
-                    'Looking for updates...',
-                    snackPosition: SnackPosition.BOTTOM,
-                    duration: const Duration(seconds: 2),
+                  // Delay to let drawer animation finish
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  if (!mounted) return;
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.showSnackBar(
+                    const SnackBar(
+                      content: Text('Checking for updates...'),
+                      duration: Duration(seconds: 1),
+                    ),
                   );
+                  final result = await _updateService.checkForUpdate();
+                  if (!mounted) return;
+                  messenger.hideCurrentSnackBar();
+                  if (result == 'up_to_date') {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('✅ You already have the latest version'),
+                        duration: Duration(seconds: 2),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } else if (result == 'error') {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          '❌ Could not check for updates. Try again later.',
+                        ),
+                        duration: Duration(seconds: 3),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                  // 'update_found' — progress bar + install dialog fire automatically
                 },
               ),
               if (_appVersion.isNotEmpty)
