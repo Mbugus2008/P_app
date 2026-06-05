@@ -56,48 +56,77 @@ class AppUpdateService extends GetxService {
     try {
       downloadProgress.value = -2; // checking
 
+      final local = await PackageInfo.fromPlatform();
+      final localVersionCode = int.tryParse(local.buildNumber) ?? 1;
+      debugPrint(
+        '🔄 Update check: local versionCode=$localVersionCode, server=$_baseUrl/api/AppUpdate/android',
+      );
+
       final uri = Uri.parse('$_baseUrl/api/AppUpdate/android');
       final response = await http
           .get(uri, headers: {'Content-Type': 'application/json'})
           .timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
+        debugPrint('❌ Update check: HTTP ${response.statusCode}');
         downloadProgress.value = -1;
         return;
       }
 
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint('📦 Update response: $decoded');
       final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
         decoded,
         (c) => AppVersionInfo.fromJson(c as Map<String, dynamic>),
       );
 
       if (!envelope.isSuccess || envelope.contents == null) {
+        debugPrint('❌ Update check: envelope not successful');
         downloadProgress.value = -1;
         return;
       }
 
       final remote = envelope.contents!;
+      debugPrint(
+        '📡 Remote version: ${remote.version} (code: ${remote.versionCode}), URL: ${remote.downloadUrl}',
+      );
 
       // Skip if no download URL.
       if (remote.downloadUrl.isEmpty) {
+        debugPrint('❌ Update check: no download URL');
         downloadProgress.value = -1;
         return;
       }
-
-      final local = await PackageInfo.fromPlatform();
-      final localVersionCode = int.tryParse(local.buildNumber) ?? 1;
 
       if (remote.versionCode <= localVersionCode) {
-        // Already up to date.
+        debugPrint(
+          '✅ Already up to date: local=$localVersionCode, remote=${remote.versionCode}',
+        );
         downloadProgress.value = -1;
         return;
       }
 
-      // Newer version available — start silent download.
+      debugPrint(
+        '🚀 New version available! local=$localVersionCode, remote=${remote.versionCode} — starting download...',
+      );
+
+      // Show toast immediately before starting download
+      if (Get.context != null) {
+        Get.snackbar(
+          'Update Available',
+          'Downloading v${remote.version} (${remote.versionCode})...',
+          snackPosition: SnackPosition.TOP,
+          duration: const Duration(seconds: 4),
+          isDismissible: true,
+        );
+      } else {
+        debugPrint('⚠️ Get.context is null — cannot show snackbar');
+      }
+
+      // Newer version available — start download.
       await _downloadApk(remote);
     } catch (e) {
-      if (kDebugMode) debugPrint('Update check failed: $e');
+      debugPrint('❌ Update check failed: $e');
       downloadProgress.value = -1;
     }
   }
