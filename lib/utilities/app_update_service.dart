@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -12,55 +11,32 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/app_version_info.dart';
 
-/// Manages silent APK downloads and prompts user to install when ready.
-/// Injected as a GetX service so the dashboard can listen to [downloadProgress].
 class AppUpdateService extends GetxService {
-  /// Observable download progress (0.0 to 1.0, -1 = idle, -2 = checking).
   final RxDouble downloadProgress = (-1.0).obs;
-
-  /// True while a newer version is being downloaded.
   final RxBool isDownloading = false.obs;
-
-  /// Set to true when a downloaded update is ready to install.
   final RxBool updateReady = false.obs;
 
-  /// The downloaded APK file path (null until download completes).
   String? _downloadedApkPath;
-
-  /// The version info for the pending install.
   AppVersionInfo? _pendingVersion;
-
-  /// The base URL for API calls (same as ApiClient's baseUrl).
   String _baseUrl = 'https://nav.trimline.co.ke:4013';
-
-  /// Timer for periodic checks (every 6 hours).
   Timer? _periodicCheckTimer;
 
   set baseUrl(String url) => _baseUrl = url;
 
-  /// Call once at app start.
   Future<void> init() async {
-    // Check immediately on startup (silent).
     await _checkForUpdate();
-
-    // Then every 6 hours while the app runs.
     _periodicCheckTimer = Timer.periodic(
       const Duration(hours: 6),
       (_) => _checkForUpdate(),
     );
   }
 
-  /// Checks the server for a newer version.
-  /// If a newer version exists, starts silent download.
   Future<void> _checkForUpdate() async {
     try {
-      downloadProgress.value = -2; // checking
+      downloadProgress.value = -2; // shows checking bar on dashboard
 
       final local = await PackageInfo.fromPlatform();
-      final localVersionCode = int.tryParse(local.buildNumber) ?? 1;
-      debugPrint(
-        '🔄 Update check: local versionCode=$localVersionCode, server=$_baseUrl/api/AppUpdate/android',
-      );
+      final localCode = int.tryParse(local.buildNumber) ?? 1;
 
       final uri = Uri.parse('$_baseUrl/api/AppUpdate/android');
       final response = await http
@@ -68,70 +44,34 @@ class AppUpdateService extends GetxService {
           .timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
-        debugPrint('❌ Update check: HTTP ${response.statusCode}');
         downloadProgress.value = -1;
         return;
       }
 
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint('📦 Update response: $decoded');
       final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
         decoded,
         (c) => AppVersionInfo.fromJson(c as Map<String, dynamic>),
       );
 
       if (!envelope.isSuccess || envelope.contents == null) {
-        debugPrint('❌ Update check: envelope not successful');
         downloadProgress.value = -1;
         return;
       }
 
       final remote = envelope.contents!;
-      debugPrint(
-        '📡 Remote version: ${remote.version} (code: ${remote.versionCode}), URL: ${remote.downloadUrl}',
-      );
-
-      // Skip if no download URL.
-      if (remote.downloadUrl.isEmpty) {
-        debugPrint('❌ Update check: no download URL');
+      if (remote.downloadUrl.isEmpty || remote.versionCode <= localCode) {
         downloadProgress.value = -1;
         return;
       }
 
-      if (remote.versionCode <= localVersionCode) {
-        debugPrint(
-          '✅ Already up to date: local=$localVersionCode, remote=${remote.versionCode}',
-        );
-        downloadProgress.value = -1;
-        return;
-      }
-
-      debugPrint(
-        '🚀 New version available! local=$localVersionCode, remote=${remote.versionCode} — starting download...',
-      );
-
-      // Show toast immediately before starting download
-      if (Get.context != null) {
-        Get.snackbar(
-          'Update Available',
-          'Downloading v${remote.version} (${remote.versionCode})...',
-          snackPosition: SnackPosition.TOP,
-          duration: const Duration(seconds: 4),
-          isDismissible: true,
-        );
-      } else {
-        debugPrint('⚠️ Get.context is null — cannot show snackbar');
-      }
-
-      // Newer version available — start download.
+      // Start download
       await _downloadApk(remote);
     } catch (e) {
-      debugPrint('❌ Update check failed: $e');
       downloadProgress.value = -1;
     }
   }
 
-  /// Downloads the APK silently, updating [downloadProgress].
   Future<void> _downloadApk(AppVersionInfo version) async {
     try {
       isDownloading.value = true;
@@ -139,26 +79,14 @@ class AppUpdateService extends GetxService {
       downloadProgress.value = 0.0;
       _pendingVersion = version;
 
-      // Notify the user that a new version is downloading
-      Get.snackbar(
-        'Update Available',
-        'Downloading v${version.version} (${version.versionCode})...',
-        snackPosition: SnackPosition.TOP,
-        duration: const Duration(seconds: 3),
-        isDismissible: true,
-      );
-
       final dir = await getApplicationDocumentsDirectory();
       final apkDir = Directory('${dir.path}/apk_downloads');
-      if (!await apkDir.exists()) {
-        await apkDir.create(recursive: true);
-      }
+      if (!await apkDir.exists()) await apkDir.create(recursive: true);
 
       final filePath =
           '${apkDir.path}/parcel_update_v${version.versionCode}.apk';
       final file = File(filePath);
 
-      // If already downloaded recently, skip re-download.
       if (await file.exists()) {
         final stat = await file.stat();
         if (DateTime.now().difference(stat.modified).inDays < 1) {
@@ -169,7 +97,6 @@ class AppUpdateService extends GetxService {
           _pendingVersion = version;
           return;
         }
-        // Otherwise delete stale file.
         await file.delete();
       }
 
@@ -208,7 +135,6 @@ class AppUpdateService extends GetxService {
         client.close();
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('APK download failed: $e');
       downloadProgress.value = -1;
       _downloadedApkPath = null;
     } finally {
@@ -216,13 +142,9 @@ class AppUpdateService extends GetxService {
     }
   }
 
-  /// Returns the path to the downloaded APK, if ready.
   String? get downloadedApkPath => _downloadedApkPath;
-
-  /// Returns the pending version info.
   AppVersionInfo? get pendingVersion => _pendingVersion;
 
-  /// Call when user accepts the update — triggers Android install intent.
   Future<void> installUpdate(BuildContext context) async {
     final path = _downloadedApkPath;
     if (path == null) return;
@@ -231,24 +153,20 @@ class AppUpdateService extends GetxService {
     if (!await file.exists()) return;
 
     try {
-      // Use the standard MethodChannel to invoke the Android installer.
       const channel = MethodChannel('com.trimline.parcel/installer');
       await channel.invokeMethod('installApk', {'path': path});
     } catch (e) {
-      if (kDebugMode) debugPrint('Install via channel failed: $e');
-      // Fallback: show a message with the file location.
       if (context.mounted) {
-        Get.snackbar(
-          'Download Complete',
-          'Open the file manager and install:\n$path',
-          snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 10),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('APK downloaded to: $path'),
+            duration: const Duration(seconds: 10),
+          ),
         );
       }
     }
   }
 
-  /// Cleans up old APK files (keep only the latest).
   Future<void> cleanOldApks() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
