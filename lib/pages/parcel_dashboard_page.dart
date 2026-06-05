@@ -266,21 +266,28 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                   final result = await _updateService.checkForUpdate();
                   if (!mounted) return;
                   messenger.hideCurrentSnackBar();
+                  final detail = _updateService.lastCheckMessage.value;
                   if (result == 'up_to_date') {
                     messenger.showSnackBar(
-                      const SnackBar(
-                        content: Text('✅ You already have the latest version'),
-                        duration: Duration(seconds: 2),
+                      SnackBar(
+                        content: Text(
+                          detail.isNotEmpty
+                              ? '✅ Up to date — $detail'
+                              : '✅ You already have the latest version',
+                        ),
+                        duration: const Duration(seconds: 3),
                         backgroundColor: Colors.green,
                       ),
                     );
                   } else if (result == 'error') {
                     messenger.showSnackBar(
-                      const SnackBar(
+                      SnackBar(
                         content: Text(
-                          '❌ Could not check for updates. Try again later.',
+                          detail.isNotEmpty
+                              ? '❌ $detail'
+                              : '❌ Could not check for updates. Try again later.',
                         ),
-                        duration: Duration(seconds: 3),
+                        duration: const Duration(seconds: 4),
                         backgroundColor: Colors.red,
                       ),
                     );

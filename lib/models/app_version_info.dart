@@ -40,12 +40,14 @@ class ApiEnvelope<T> {
     Map<String, dynamic> json,
     T Function(dynamic)? parser,
   ) {
+    // The API uses lowercase json keys: code, desc, contents
+    final int code = (json['Code'] ?? json['code']) as int? ?? -1;
+    final String desc = (json['Desc'] ?? json['desc'] ?? '') as String;
+    final dynamic contents = json['Contents'] ?? json['contents'];
     return ApiEnvelope(
-      code: json['Code'] as int? ?? -1,
-      desc: json['Desc'] as String? ?? '',
-      contents: json['Contents'] != null && parser != null
-          ? parser(json['Contents'])
-          : null,
+      code: code,
+      desc: desc,
+      contents: contents != null && parser != null ? parser(contents) : null,
     );
   }
 

@@ -15,6 +15,9 @@ class AppUpdateService extends GetxService {
   final RxBool isDownloading = false.obs;
   final RxBool updateReady = false.obs;
 
+  /// Human-readable message describing the last check result.
+  final RxString lastCheckMessage = ''.obs;
+
   String? _downloadedApkPath;
   AppVersionInfo? _pendingVersion;
   String _baseUrl = 'https://nav.trimline.co.ke:4013';
@@ -50,11 +53,14 @@ class AppUpdateService extends GetxService {
       final resp = await req.close().timeout(const Duration(seconds: 15));
 
       if (resp.statusCode != 200) {
+        debugPrint('❌ Update check: HTTP ${resp.statusCode}');
+        lastCheckMessage.value = 'HTTP ${resp.statusCode}';
         downloadProgress.value = -1;
         return 'error';
       }
 
       final body = await resp.transform(utf8.decoder).join();
+      debugPrint('📦 Raw response: $body');
       final decoded = jsonDecode(body) as Map<String, dynamic>;
       final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
         decoded,
@@ -62,19 +68,35 @@ class AppUpdateService extends GetxService {
       );
 
       if (!envelope.isSuccess || envelope.contents == null) {
+        debugPrint('❌ Update check: envelope not successful');
+        lastCheckMessage.value = 'Bad response';
         downloadProgress.value = -1;
         return 'error';
       }
 
       final remote = envelope.contents!;
+      debugPrint(
+        '📡 Remote v${remote.version} (code ${remote.versionCode}), local=$localCode',
+      );
+      lastCheckMessage.value =
+          'Server: ${remote.version} (#${remote.versionCode}) — App: #$localCode';
       if (remote.downloadUrl.isEmpty || remote.versionCode <= localCode) {
+        debugPrint(
+          remote.versionCode <= localCode
+              ? '✅ Already up to date'
+              : '❌ No download URL',
+        );
         downloadProgress.value = -1;
         return 'up_to_date';
       }
 
+      debugPrint('🚀 New version! Starting download...');
       await _downloadApk(remote);
       return 'update_found';
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('❌ Update check exception: $e');
+      debugPrint('   Stack: $stack');
+      lastCheckMessage.value = '$e'.split('\n').first;
       downloadProgress.value = -1;
       return 'error';
     } finally {
