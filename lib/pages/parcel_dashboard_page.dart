@@ -840,42 +840,45 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
 
     return Container(
+      key: _getKey('received'),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.inventory_2, size: 20, color: color),
-              const SizedBox(width: 8),
-              Text(
+      child: _AccordionTile(
+        isExpanded: sectionExpanded == 'received',
+        onToggle: () => _toggleSection('received'),
+        title: Row(
+          children: [
+            Icon(Icons.inventory_2, size: 20, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
                 'Received',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${parcels.length} parcels',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${parcels.length} parcels',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+        children: [
           const SizedBox(height: 8),
           ...parcels.map(
             (parcel) => Padding(
