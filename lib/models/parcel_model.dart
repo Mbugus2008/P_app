@@ -189,6 +189,7 @@ class Parcel {
         read(['Receipt_Printed', 'receipt_Printed', 'receiptPrinted']),
       ),
       Details: read(['Details', 'details']) as String?,
+      deviceId: read(['deviceId', 'Device_ID', 'device_id']) as String?,
       parcelDetails:
           (read(['Parcel_Details', 'parcel_Details', 'parcelDetails']) as List?)
               ?.map(
@@ -334,6 +335,7 @@ class Parcel {
       'Time_Delivered': Time_Delivered?.toIso8601String(),
       'Notes': Notes,
       'Details': Details,
+      'deviceId': deviceId,
     };
   }
 
@@ -382,6 +384,7 @@ class Parcel {
     String? Details,
     bool? isSynced,
     bool? receiptPrinted,
+    String? deviceId,
     List<Parcel_Details>? parcelDetails,
   }) {
     return Parcel(
@@ -417,6 +420,7 @@ class Parcel {
       Details: Details ?? this.Details,
       isSynced: isSynced ?? this.isSynced,
       receiptPrinted: receiptPrinted ?? this.receiptPrinted,
+      deviceId: deviceId ?? this.deviceId,
       parcelDetails: parcelDetails ?? this.parcelDetails,
     );
   }
