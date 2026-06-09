@@ -12,12 +12,6 @@ void main() {
   Get.put(LoggerService());
   Get.put(ParcelController());
   Get.put(AppUpdateService());
-
-  // Initialize background services after runApp.
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    Get.find<AppUpdateService>().init();
-  });
-
   runApp(const MyApp());
 }
 

@@ -1,4 +1,3 @@
-/// Model for the AppUpdateController response.
 class AppVersionInfo {
   final String version;
   final int versionCode;
@@ -18,17 +17,16 @@ class AppVersionInfo {
 
   factory AppVersionInfo.fromJson(Map<String, dynamic> json) {
     return AppVersionInfo(
-      version: json['Version'] as String? ?? '1.0.0',
-      versionCode: json['VersionCode'] as int? ?? 1,
-      buildDate: json['BuildDate'] as String? ?? '',
-      downloadUrl: json['DownloadUrl'] as String? ?? '',
-      releaseNotes: json['ReleaseNotes'] as String?,
-      forceUpdate: json['ForceUpdate'] as bool? ?? false,
+      version: (json['version'] ?? json['Version'] ?? '1.0.0') as String,
+      versionCode: ((json['versionCode'] ?? json['VersionCode']) as num?)?.toInt() ?? 1,
+      buildDate: (json['buildDate'] ?? json['BuildDate'] ?? '') as String,
+      downloadUrl: (json['downloadUrl'] ?? json['DownloadUrl'] ?? '') as String,
+      releaseNotes: (json['releaseNotes'] ?? json['ReleaseNotes']) as String?,
+      forceUpdate: (json['forceUpdate'] ?? json['ForceUpdate'] ?? false) as bool,
     );
   }
 }
 
-/// Wraps the envelope: { Code, Desc, Contents }
 class ApiEnvelope<T> {
   final int code;
   final String desc;
@@ -40,10 +38,9 @@ class ApiEnvelope<T> {
     Map<String, dynamic> json,
     T Function(dynamic)? parser,
   ) {
-    // The API uses lowercase json keys: code, desc, contents
-    final int code = (json['Code'] ?? json['code']) as int? ?? -1;
-    final String desc = (json['Desc'] ?? json['desc'] ?? '') as String;
-    final dynamic contents = json['Contents'] ?? json['contents'];
+    final code = (json['code'] ?? json['Code'] ?? json['Code'] ?? -1) as int;
+    final desc = (json['desc'] ?? json['Desc'] ?? '') as String;
+    final contents = json['contents'] ?? json['Contents'];
     return ApiEnvelope(
       code: code,
       desc: desc,

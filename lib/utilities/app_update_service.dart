@@ -14,165 +14,156 @@ class AppUpdateService extends GetxService {
   final RxDouble downloadProgress = (-1.0).obs;
   final RxBool isDownloading = false.obs;
   final RxBool updateReady = false.obs;
-
-  /// Human-readable message describing the last check result.
   final RxString lastCheckMessage = ''.obs;
 
   String? _downloadedApkPath;
-  AppVersionInfo? _pendingVersion;
-  String _baseUrl = 'https://nav.trimline.co.ke:4013';
-  Timer? _periodicCheckTimer;
+  AppVersionInfo? pendingVersion;
+  Timer? _timer;
 
-  set baseUrl(String url) => _baseUrl = url;
-
-  Future<void> init() async {
-    await _checkForUpdate();
-    _periodicCheckTimer = Timer.periodic(
-      const Duration(hours: 6),
-      (_) => _checkForUpdate(),
-    );
+  @override
+  void onInit() {
+    super.onInit();
+    _check();
+    _timer = Timer.periodic(const Duration(hours: 6), (_) => _check());
   }
 
-  Future<String> checkForUpdate() => _checkForUpdate();
+  @override
+  void onClose() {
+    _timer?.cancel();
+    super.onClose();
+  }
 
-  Future<String> _checkForUpdate() async {
-    HttpClient? client;
+  Future<String> checkForUpdate() => _check();
+
+  Future<String> _check() async {
     try {
       downloadProgress.value = -2;
 
       final local = await PackageInfo.fromPlatform();
-      final localCode = int.tryParse(local.buildNumber) ?? 1;
+      final localCode = int.tryParse(local.buildNumber) ?? 0;
 
-      final uri = Uri.parse('$_baseUrl/api/AppUpdate/android');
+      final client = HttpClient()
+        ..badCertificateCallback = (_, __, ___) => true;
+      try {
+        final req = await client
+            .getUrl(Uri.parse('https://nav.trimline.co.ke:4013/api/AppUpdate/android'));
+        final resp = await req.close().timeout(const Duration(seconds: 15));
 
-      // Accept self-signed certificate on nav.trimline.co.ke
-      client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
+        if (resp.statusCode != 200) {
+          lastCheckMessage.value = 'HTTP ${resp.statusCode}';
+          downloadProgress.value = -1;
+          return 'error';
+        }
 
-      final req = await client.getUrl(uri);
-      req.headers.set('Content-Type', 'application/json');
-      final resp = await req.close().timeout(const Duration(seconds: 15));
+        final body = await resp.transform(utf8.decoder).join();
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final c = json['contents'] as Map<String, dynamic>?;
 
-      if (resp.statusCode != 200) {
-        debugPrint('❌ Update check: HTTP ${resp.statusCode}');
-        lastCheckMessage.value = 'HTTP ${resp.statusCode}';
-        downloadProgress.value = -1;
-        return 'error';
-      }
+        if (c == null) {
+          lastCheckMessage.value = 'Bad response';
+          downloadProgress.value = -1;
+          return 'error';
+        }
 
-      final body = await resp.transform(utf8.decoder).join();
-      debugPrint('📦 Raw response: $body');
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      final envelope = ApiEnvelope<AppVersionInfo>.fromJson(
-        decoded,
-        (c) => AppVersionInfo.fromJson(c as Map<String, dynamic>),
-      );
+        final remoteVersion = c['version'] as String? ?? '?';
+        final remoteCode = (c['versionCode'] as num?)?.toInt() ?? 0;
+        final downloadUrl = c['downloadUrl'] as String? ?? '';
 
-      if (!envelope.isSuccess || envelope.contents == null) {
-        debugPrint('❌ Update check: envelope not successful');
-        lastCheckMessage.value = 'Bad response';
-        downloadProgress.value = -1;
-        return 'error';
-      }
+        lastCheckMessage.value = 'Local #$localCode — Server #$remoteCode';
 
-      final remote = envelope.contents!;
-      debugPrint(
-        '📡 Remote v${remote.version} (code ${remote.versionCode}), local=$localCode',
-      );
-      lastCheckMessage.value =
-          'Server: ${remote.version} (#${remote.versionCode}) — App: #$localCode';
-      if (remote.downloadUrl.isEmpty || remote.versionCode <= localCode) {
-        debugPrint(
-          remote.versionCode <= localCode
-              ? '✅ Already up to date'
-              : '❌ No download URL',
+        if (remoteCode <= localCode || downloadUrl.isEmpty) {
+          downloadProgress.value = -1;
+          return 'up_to_date';
+        }
+
+        pendingVersion = AppVersionInfo(
+          version: remoteVersion,
+          versionCode: remoteCode,
+          buildDate: c['buildDate'] as String? ?? '',
+          downloadUrl: downloadUrl,
+          releaseNotes: c['releaseNotes'] as String?,
+          forceUpdate: c['forceUpdate'] as bool? ?? false,
         );
-        downloadProgress.value = -1;
-        return 'up_to_date';
-      }
 
-      debugPrint('🚀 New version! Starting download...');
-      await _downloadApk(remote);
-      return 'update_found';
-    } catch (e, stack) {
-      debugPrint('❌ Update check exception: $e');
-      debugPrint('   Stack: $stack');
+        await _downloadApk();
+        return 'update_found';
+      } finally {
+        client.close();
+      }
+    } catch (e) {
       lastCheckMessage.value = '$e'.split('\n').first;
       downloadProgress.value = -1;
       return 'error';
-    } finally {
-      client?.close();
     }
   }
 
-  Future<void> _downloadApk(AppVersionInfo version) async {
-    HttpClient? client;
+  Future<void> _downloadApk() async {
+    final version = pendingVersion;
+    if (version == null) return;
+
     try {
       isDownloading.value = true;
       updateReady.value = false;
       downloadProgress.value = 0.0;
-      _pendingVersion = version;
 
       final dir = await getApplicationDocumentsDirectory();
       final apkDir = Directory('${dir.path}/apk_downloads');
       if (!await apkDir.exists()) await apkDir.create(recursive: true);
 
-      final filePath =
-          '${apkDir.path}/parcel_update_v${version.versionCode}.apk';
+      final filePath = '${apkDir.path}/parcel_v${version.versionCode}.apk';
       final file = File(filePath);
 
       if (await file.exists()) {
         final stat = await file.stat();
-        if (DateTime.now().difference(stat.modified).inDays < 1) {
+        if (DateTime.now().difference(stat.modified).inHours < 1) {
           _downloadedApkPath = filePath;
           downloadProgress.value = 1.0;
           updateReady.value = true;
           isDownloading.value = false;
-          _pendingVersion = version;
           return;
         }
         await file.delete();
       }
 
-      final uri = Uri.parse(version.downloadUrl);
-      client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
+      final client = HttpClient()
+        ..badCertificateCallback = (_, __, ___) => true;
+      try {
+        final req = await client.getUrl(Uri.parse(version.downloadUrl));
+        final resp = await req.close();
 
-      final req = await client.getUrl(uri);
-      final resp = await req.close();
-
-      if (resp.statusCode != 200) {
-        downloadProgress.value = -1;
-        return;
-      }
-
-      final totalBytes = resp.contentLength;
-      var receivedBytes = 0;
-      final sink = file.openWrite();
-
-      await for (final chunk in resp) {
-        sink.add(chunk);
-        receivedBytes += chunk.length;
-        if (totalBytes > 0) {
-          downloadProgress.value = receivedBytes / totalBytes;
+        if (resp.statusCode != 200) {
+          downloadProgress.value = -1;
+          return;
         }
+
+        final total = resp.contentLength;
+        var received = 0;
+        final sink = file.openWrite();
+
+        await for (final chunk in resp) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (total > 0) downloadProgress.value = received / total;
+        }
+
+        await sink.flush();
+        await sink.close();
+
+        _downloadedApkPath = filePath;
+        downloadProgress.value = 1.0;
+        updateReady.value = true;
+      } finally {
+        client.close();
       }
-
-      await sink.flush();
-      await sink.close();
-
-      _downloadedApkPath = filePath;
-      downloadProgress.value = 1.0;
-      updateReady.value = true;
     } catch (e) {
       downloadProgress.value = -1;
       _downloadedApkPath = null;
     } finally {
       isDownloading.value = false;
-      client?.close();
     }
   }
 
   String? get downloadedApkPath => _downloadedApkPath;
-  AppVersionInfo? get pendingVersion => _pendingVersion;
 
   Future<void> installUpdate(BuildContext context) async {
     final path = _downloadedApkPath;
@@ -187,32 +178,9 @@ class AppUpdateService extends GetxService {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('APK downloaded to: $path'),
-            duration: const Duration(seconds: 10),
-          ),
+          SnackBar(content: Text('APK at: $path')),
         );
       }
     }
-  }
-
-  Future<void> cleanOldApks() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final apkDir = Directory('${dir.path}/apk_downloads');
-      if (!await apkDir.exists()) return;
-
-      final files = await apkDir.list().toList();
-      files.sort((a, b) => b.path.compareTo(a.path));
-      for (var i = 1; i < files.length; i++) {
-        await files[i].delete();
-      }
-    } catch (_) {}
-  }
-
-  @override
-  void onClose() {
-    _periodicCheckTimer?.cancel();
-    super.onClose();
   }
 }
