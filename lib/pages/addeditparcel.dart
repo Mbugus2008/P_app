@@ -1118,6 +1118,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         Date_Collected: controller.parcel?.Date_Collected,
         Date_Delivered: controller.parcel?.Date_Delivered,
         Details: controller.parcel?.Details,
+        deviceId: controller.parcel?.deviceId ?? existing?.deviceId,
         parcelDetails: controller.parcel?.parcelDetails,
       );
 

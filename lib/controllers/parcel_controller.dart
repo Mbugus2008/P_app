@@ -1224,6 +1224,7 @@ class ParcelController extends GetxController {
   Future<void> updateParcel(Parcel parcel) async {
     _isLoading.value = true;
     try {
+      parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
       await _dbHelper.updateParcel(parcel);
 
       // Only sync to backend if already dispatched
