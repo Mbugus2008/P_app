@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 14,
+      version: 15,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -130,6 +130,8 @@ class DatabaseHelper {
     ''');
     // Note: Removed Created_At and Ref_No as they are not in the Parcel model
     //await _seedSampleParcels(db);
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -282,6 +284,15 @@ class DatabaseHelper {
       } catch (_) {
         // Column may already exist on some installs.
       }
+    }
+
+    if (oldVersion < 15) {
+      try {
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)');
+      } catch (_) {}
+      try {
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)');
+      } catch (_) {}
     }
   }
 
@@ -813,5 +824,178 @@ class DatabaseHelper {
       orderBy: 'Date_Delivered DESC',
     );
     return rows.map((row) => Parcel.fromDbMap(row)).toList();
+  }
+
+  // ==================== Report Queries ====================
+
+  String _dateWhereClause(String dateField, {DateTime? from, DateTime? to}) {
+    final conditions = <String>[];
+    if (from != null) {
+      conditions.add("$dateField >= '${from.toIso8601String().split('T').first}'");
+    }
+    if (to != null) {
+      final nextDay = to.add(const Duration(days: 1)).toIso8601String().split('T').first;
+      conditions.add("$dateField < '$nextDay'");
+    }
+    return conditions.isEmpty ? '1=1' : conditions.join(' AND ');
+  }
+
+  /// Status Breakdown: count + total revenue grouped by status
+  Future<List<Map<String, dynamic>>> getStatusBreakdown({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT Status, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY Status
+      ORDER BY COUNT(*) DESC
+    ''');
+  }
+
+  /// Daily Volume: count + total revenue grouped by date
+  Future<List<Map<String, dynamic>>> getDailyVolume({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT substr(Date_sent, 1, 10) as date, COUNT(*) as count,
+             COALESCE(SUM(Amount_Paid), 0) as total_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY date
+      ORDER BY date DESC
+    ''');
+  }
+
+  /// Revenue breakdown by period (daily summary focused on Amount_Paid)
+  Future<List<Map<String, dynamic>>> getRevenueBreakdown({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT substr(Date_sent, 1, 10) as date,
+             COUNT(*) as count,
+             COALESCE(SUM(Amount_Paid), 0) as total_amount,
+             COALESCE(SUM(CASE WHEN Paid = 1 THEN Amount_Paid ELSE 0 END), 0) as paid_amount,
+             COALESCE(SUM(CASE WHEN Paid = 0 THEN Amount_Paid ELSE 0 END), 0) as unpaid_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY date
+      ORDER BY date DESC
+    ''');
+  }
+
+  /// Route Performance: count + total revenue grouped by From-Location and To-Location
+  Future<List<Map<String, dynamic>>> getRoutePerformance({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT From_Location as source, To_Location as destination,
+             COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY source, destination
+      ORDER BY count DESC
+    ''');
+  }
+
+  /// Driver Workload: count + total revenue grouped by driver
+  Future<List<Map<String, dynamic>>> getDriverWorkload({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT Driver, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY Driver
+      ORDER BY count DESC
+    ''');
+  }
+
+  /// Vehicle Workload: count + total revenue grouped by vehicle
+  Future<List<Map<String, dynamic>>> getVehicleWorkload({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT Vehicle, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
+      FROM $_tableName
+      WHERE $where
+      GROUP BY Vehicle
+      ORDER BY count DESC
+    ''');
+  }
+
+  /// Payment Method Breakdown: count + total revenue grouped by Payment_Method
+  Future<List<Map<String, dynamic>>> getPaymentMethodBreakdown({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT COALESCE(NULLIF(Payment_Method, ''), 'pending') as method,
+             COUNT(*) as count,
+             COALESCE(SUM(Amount_Paid), 0) as total_amount,
+             SUM(CASE WHEN Paid = 1 THEN 1 ELSE 0 END) as paid_count,
+             SUM(CASE WHEN Paid = 0 THEN 1 ELSE 0 END) as unpaid_count
+      FROM $_tableName
+      WHERE $where
+      GROUP BY method
+      ORDER BY count DESC
+    ''');
+  }
+
+  /// Batch Performance: batch stats grouped by status
+  Future<List<Map<String, dynamic>>> getBatchPerformance({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date', from: from, to: to);
+    return db.rawQuery('''
+      SELECT Status, COUNT(*) as count,
+             COALESCE(SUM(Parcel_Count), 0) as total_parcels,
+             COALESCE(SUM(Total_Amount), 0) as total_amount
+      FROM $_batchesTableName
+      WHERE $where
+      GROUP BY Status
+      ORDER BY count DESC
+    ''');
+  }
+
+  /// Activity Log: recent parcel status changes as an audit trail
+  Future<List<Map<String, dynamic>>> getActivityLog({
+    DateTime? from,
+    DateTime? to,
+    int limit = 200,
+  }) async {
+    final db = await database;
+    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery('''
+      SELECT Document_No, Date_sent, Status, Sender_Name, Receiver_Name,
+             From_Location, To_Location, Driver, Amount_Paid, Payment_Method,
+             Time_Created, Time_Sent, Date_Collected, Date_Delivered
+      FROM $_tableName
+      WHERE $where
+      ORDER BY Date_sent DESC
+      LIMIT $limit
+    ''');
   }
 }

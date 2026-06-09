@@ -12,6 +12,7 @@ import '../models/parcel_model.dart';
 import '../pages/add_user_page.dart';
 import '../pages/addeditparcel.dart';
 import '../pages/login.dart';
+import '../pages/reports_page.dart';
 import '../pages/settings_page.dart';
 import '../utilities/app_update_service.dart';
 import '../utilities/remember_me_helper.dart';
@@ -236,6 +237,14 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 onTap: () {
                   Navigator.of(context).pop();
                   Get.to(() => const SettingsPage());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.bar_chart),
+                title: const Text('Reports'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Get.to(() => const ReportsPage());
                 },
               ),
               if (user?.isAdmin == true)
@@ -729,42 +738,44 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      key: _getKey('intransit'),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.local_shipping, size: 20, color: color),
-              const SizedBox(width: 8),
-              Text(
+      child: _AccordionTile(
+        isExpanded: sectionExpanded == 'intransit',
+        onToggle: () => _toggleSection('intransit'),
+        title: Row(
+          children: [
+            Icon(Icons.local_shipping, size: 20, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
                 'In Transit',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${batches.length} batches',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${batches.length} batches',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+        children: [
           const SizedBox(height: 8),
           ...batches.map(
             (batch) => Padding(
@@ -841,7 +852,6 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
 
     return Container(
       key: _getKey('received'),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14),
@@ -1204,19 +1214,102 @@ class _InTransitBatchCard extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                parcel.Receiver_Name ?? '-',
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.place_outlined,
+                                    size: 12,
+                                    color: color,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      '${parcel.From ?? '-'} → ${parcel.To ?? '-'}',
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: color,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (parcel.Sender_Name?.trim().isNotEmpty == true)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person_outline,
+                                        size: 12,
+                                        color: Colors.black54,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          parcel.Sender_Name!,
+                                          style: theme.textTheme.bodySmall,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.person_outline,
+                                      size: 12,
+                                      color: Colors.black54,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        parcel.Receiver_Name ?? '-',
+                                        style: theme.textTheme.bodySmall,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 1),
-                              Text(
-                                parcel.Receiver_Phone ?? '-',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall,
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.call_outlined,
+                                      size: 12,
+                                      color: Colors.black45,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      parcel.Receiver_Phone ?? '-',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(color: Colors.black54),
+                                    ),
+                                  ],
+                                ),
                               ),
+                              if (parcel.Details?.trim().isNotEmpty == true)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Text(
+                                    parcel.Details!,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.black54,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
                               const SizedBox(height: 4),
                               Container(
                                 padding: const EdgeInsets.symmetric(
