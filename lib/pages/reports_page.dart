@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../database/database_helper.dart';
+import '../utilities/device_id.dart';
 import '../utils/app_colors.dart';
 
 enum ReportType {
@@ -67,13 +68,19 @@ class _ReportsPageState extends State<ReportsPage> {
   bool _isExporting = false;
   List<Map<String, dynamic>> _results = [];
   String? _error;
+  String _deviceId = '';
 
   @override
   void initState() {
     super.initState();
     _dateFrom = DateTime.now().subtract(const Duration(days: 30));
     _dateTo = DateTime.now();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadReport());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initDeviceAndLoad());
+  }
+
+  Future<void> _initDeviceAndLoad() async {
+    _deviceId = await DeviceIdHelper.instance.getDeviceId();
+    _loadReport();
   }
 
   Future<void> _loadReport() async {
@@ -86,23 +93,23 @@ class _ReportsPageState extends State<ReportsPage> {
       List<Map<String, dynamic>> results;
       switch (_selectedReport) {
         case ReportType.statusBreakdown:
-          results = await _dbHelper.getStatusBreakdown(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getStatusBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.dailyVolume:
-          results = await _dbHelper.getDailyVolume(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getDailyVolume(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.revenue:
-          results = await _dbHelper.getRevenueBreakdown(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getRevenueBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.routePerformance:
-          results = await _dbHelper.getRoutePerformance(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getRoutePerformance(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.driverWorkload:
-          results = await _dbHelper.getDriverWorkload(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getDriverWorkload(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.vehicleWorkload:
-          results = await _dbHelper.getVehicleWorkload(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getVehicleWorkload(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.paymentMethod:
-          results = await _dbHelper.getPaymentMethodBreakdown(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getPaymentMethodBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.batchPerformance:
-          results = await _dbHelper.getBatchPerformance(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getBatchPerformance(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
         case ReportType.activityLog:
-          results = await _dbHelper.getActivityLog(from: _dateFrom, to: _dateTo);
+          results = await _dbHelper.getActivityLog(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
       }
 
       if (!mounted) return;
@@ -630,14 +637,27 @@ class _ReportsPageState extends State<ReportsPage> {
               border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
             child: isWide
-                ? Text(
-                    'Reports',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.secondary,
-                      letterSpacing: 0.5,
-                    ),
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reports',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'This device',
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
                   )
                 : const Icon(Icons.assessment, size: 22, color: AppColors.secondary),
           ),

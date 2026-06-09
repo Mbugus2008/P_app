@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 15,
+      version: 16,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -73,7 +73,8 @@ class DatabaseHelper {
         Payment_Method TEXT,
         Mpesa_Code TEXT,
         Is_Synced INTEGER DEFAULT 0,
-        Receipt_Printed INTEGER DEFAULT 0
+        Receipt_Printed INTEGER DEFAULT 0,
+        Device_ID TEXT
       )
     ''');
     await db.execute('''
@@ -125,7 +126,8 @@ class DatabaseHelper {
         Created_At TEXT,
         Updated_At TEXT,
         Is_Synced INTEGER,
-        Sync_Status TEXT
+        Sync_Status TEXT,
+        Device_ID TEXT
       )
     ''');
     // Note: Removed Created_At and Ref_No as they are not in the Parcel model
@@ -292,6 +294,15 @@ class DatabaseHelper {
       } catch (_) {}
       try {
         await db.execute('CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 16) {
+      try {
+        await db.execute('ALTER TABLE $_tableName ADD COLUMN Device_ID TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE $_batchesTableName ADD COLUMN Device_ID TEXT');
       } catch (_) {}
     }
   }
@@ -840,17 +851,23 @@ class DatabaseHelper {
     return conditions.isEmpty ? '1=1' : conditions.join(' AND ');
   }
 
+  String _deviceWhereClause(String deviceId) {
+    return "Device_ID = '$deviceId'";
+  }
+
   /// Status Breakdown: count + total revenue grouped by status
   Future<List<Map<String, dynamic>>> getStatusBreakdown({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT Status, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY Status
       ORDER BY COUNT(*) DESC
     ''');
@@ -860,14 +877,16 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getDailyVolume({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT substr(Date_sent, 1, 10) as date, COUNT(*) as count,
              COALESCE(SUM(Amount_Paid), 0) as total_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY date
       ORDER BY date DESC
     ''');
@@ -877,9 +896,11 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getRevenueBreakdown({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT substr(Date_sent, 1, 10) as date,
              COUNT(*) as count,
@@ -887,7 +908,7 @@ class DatabaseHelper {
              COALESCE(SUM(CASE WHEN Paid = 1 THEN Amount_Paid ELSE 0 END), 0) as paid_amount,
              COALESCE(SUM(CASE WHEN Paid = 0 THEN Amount_Paid ELSE 0 END), 0) as unpaid_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY date
       ORDER BY date DESC
     ''');
@@ -897,14 +918,16 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getRoutePerformance({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT From_Location as source, To_Location as destination,
              COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY source, destination
       ORDER BY count DESC
     ''');
@@ -914,13 +937,15 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getDriverWorkload({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT Driver, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY Driver
       ORDER BY count DESC
     ''');
@@ -930,13 +955,15 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getVehicleWorkload({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT Vehicle, COUNT(*) as count, COALESCE(SUM(Amount_Paid), 0) as total_amount
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY Vehicle
       ORDER BY count DESC
     ''');
@@ -946,9 +973,11 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getPaymentMethodBreakdown({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT COALESCE(NULLIF(Payment_Method, ''), 'pending') as method,
              COUNT(*) as count,
@@ -956,7 +985,7 @@ class DatabaseHelper {
              SUM(CASE WHEN Paid = 1 THEN 1 ELSE 0 END) as paid_count,
              SUM(CASE WHEN Paid = 0 THEN 1 ELSE 0 END) as unpaid_count
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY method
       ORDER BY count DESC
     ''');
@@ -966,15 +995,17 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getBatchPerformance({
     DateTime? from,
     DateTime? to,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT Status, COUNT(*) as count,
              COALESCE(SUM(Parcel_Count), 0) as total_parcels,
              COALESCE(SUM(Total_Amount), 0) as total_amount
       FROM $_batchesTableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       GROUP BY Status
       ORDER BY count DESC
     ''');
@@ -985,15 +1016,17 @@ class DatabaseHelper {
     DateTime? from,
     DateTime? to,
     int limit = 200,
+    required String deviceId,
   }) async {
     final db = await database;
-    final where = _dateWhereClause('Date_sent', from: from, to: to);
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final deviceWhere = _deviceWhereClause(deviceId);
     return db.rawQuery('''
       SELECT Document_No, Date_sent, Status, Sender_Name, Receiver_Name,
              From_Location, To_Location, Driver, Amount_Paid, Payment_Method,
              Time_Created, Time_Sent, Date_Collected, Date_Delivered
       FROM $_tableName
-      WHERE $where
+      WHERE $dateWhere AND $deviceWhere
       ORDER BY Date_sent DESC
       LIMIT $limit
     ''');

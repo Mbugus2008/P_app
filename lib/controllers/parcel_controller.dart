@@ -18,6 +18,7 @@ import '../models/app_vehicle.dart';
 import '../models/batches.dart';
 import '../models/parcel_model.dart';
 import '../utilities/Apis.dart';
+import '../utilities/device_id.dart';
 
 class ParcelController extends GetxController {
   ParcelController({Parcel? initialParcel}) {
@@ -1127,6 +1128,7 @@ class ParcelController extends GetxController {
     _isLoading.value = true;
     try {
       parcel.Time_Created ??= DateTime.now();
+      parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
       await _assignOrCreateBatch(parcel);
       await _dbHelper.insertParcel(parcel);
 

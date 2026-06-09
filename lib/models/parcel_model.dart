@@ -40,6 +40,7 @@ class Parcel {
   bool isSynced;
   bool receiptPrinted;
   String? Details = '';
+  String? deviceId;
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -74,6 +75,7 @@ class Parcel {
     this.isSynced = false,
     this.receiptPrinted = false,
     this.Details = '',
+    this.deviceId,
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -240,6 +242,7 @@ class Parcel {
       'Details': Details,
       'Is_Synced': (isSynced) ? 1 : 0,
       'Receipt_Printed': (receiptPrinted) ? 1 : 0,
+      'Device_ID': deviceId,
     };
   }
 
@@ -276,6 +279,7 @@ class Parcel {
       Details: map['Details'] as String?,
       isSynced: (map['Is_Synced'] as int? ?? 0) == 1,
       receiptPrinted: (map['Receipt_Printed'] as int? ?? 0) == 1,
+      deviceId: map['Device_ID'] as String?,
     );
   }
 
