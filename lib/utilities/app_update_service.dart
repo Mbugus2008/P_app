@@ -44,10 +44,11 @@ class AppUpdateService extends GetxService {
 
       final client = HttpClient()
         ..badCertificateCallback = (_, __, ___) => true;
+      client.connectionTimeout = const Duration(seconds: 30);
       try {
         final req = await client
             .getUrl(Uri.parse('https://nav.trimline.co.ke:4013/api/AppUpdate/android'));
-        final resp = await req.close().timeout(const Duration(seconds: 15));
+        final resp = await req.close().timeout(const Duration(seconds: 20));
 
         if (resp.statusCode != 200) {
           lastCheckMessage.value = 'HTTP ${resp.statusCode}';
@@ -85,13 +86,15 @@ class AppUpdateService extends GetxService {
           forceUpdate: c['forceUpdate'] as bool? ?? false,
         );
 
+        lastCheckMessage.value = 'Downloading v$remoteVersion...';
         await _downloadApk();
         return 'update_found';
       } finally {
         client.close();
       }
     } catch (e) {
-      lastCheckMessage.value = '$e'.split('\n').first;
+      final msg = '$e'.split('\n').first;
+      lastCheckMessage.value = msg.length > 80 ? msg.substring(0, 80) : msg;
       downloadProgress.value = -1;
       return 'error';
     }
@@ -105,6 +108,7 @@ class AppUpdateService extends GetxService {
       isDownloading.value = true;
       updateReady.value = false;
       downloadProgress.value = 0.0;
+      lastCheckMessage.value = 'Starting download...';
 
       final dir = await getApplicationDocumentsDirectory();
       final apkDir = Directory('${dir.path}/apk_downloads');
@@ -120,6 +124,7 @@ class AppUpdateService extends GetxService {
           downloadProgress.value = 1.0;
           updateReady.value = true;
           isDownloading.value = false;
+          lastCheckMessage.value = 'Download complete';
           return;
         }
         await file.delete();
@@ -127,11 +132,13 @@ class AppUpdateService extends GetxService {
 
       final client = HttpClient()
         ..badCertificateCallback = (_, __, ___) => true;
+      client.connectionTimeout = const Duration(seconds: 30);
       try {
         final req = await client.getUrl(Uri.parse(version.downloadUrl));
-        final resp = await req.close();
+        final resp = await req.close().timeout(const Duration(minutes: 5));
 
         if (resp.statusCode != 200) {
+          lastCheckMessage.value = 'Download failed: HTTP ${resp.statusCode}';
           downloadProgress.value = -1;
           return;
         }
@@ -139,23 +146,39 @@ class AppUpdateService extends GetxService {
         final total = resp.contentLength;
         var received = 0;
         final sink = file.openWrite();
+        final stopwatch = Stopwatch()..start();
 
         await for (final chunk in resp) {
           sink.add(chunk);
           received += chunk.length;
-          if (total > 0) downloadProgress.value = received / total;
+
+          if (total > 0) {
+            downloadProgress.value = received / total;
+            final pct = (received * 100 / total).toStringAsFixed(0);
+            final mb = received / (1024 * 1024);
+            lastCheckMessage.value = 'Downloading... $pct% (${mb.toStringAsFixed(1)} MB)';
+          } else {
+            final mb = received / (1024 * 1024);
+            lastCheckMessage.value = mb < 1
+                ? 'Downloading... ${(received / 1024).toStringAsFixed(0)} KB'
+                : 'Downloading... ${mb.toStringAsFixed(1)} MB';
+          }
         }
 
+        stopwatch.stop();
         await sink.flush();
         await sink.close();
 
         _downloadedApkPath = filePath;
         downloadProgress.value = 1.0;
         updateReady.value = true;
+        lastCheckMessage.value = 'Download complete (${(received / (1024 * 1024)).toStringAsFixed(1)} MB)';
       } finally {
         client.close();
       }
     } catch (e) {
+      final msg = '$e'.split('\n').first;
+      lastCheckMessage.value = 'Download error: ${msg.length > 80 ? msg.substring(0, 80) : msg}';
       downloadProgress.value = -1;
       _downloadedApkPath = null;
     } finally {

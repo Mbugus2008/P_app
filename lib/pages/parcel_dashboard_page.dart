@@ -338,82 +338,71 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         ),
         backgroundColor: AppColors.secondary,
         foregroundColor: Colors.white,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4),
-          child: Obx(() {
+      ),
+      body: Column(
+        children: [
+          // Download progress bar below AppBar
+          Obx(() {
             final progress = _updateService.downloadProgress.value;
             if (progress < 0) return const SizedBox.shrink();
 
             if (progress == -2) {
-              // Checking for updates
               return Container(
-                height: 2,
-                color: Colors.white24,
+                height: 3,
+                color: Colors.white,
                 child: const LinearProgressIndicator(
                   backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.secondary),
                 ),
               );
             }
 
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-              color: AppColors.secondary,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: Colors.white,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
                     children: [
-                      const Icon(
-                        Icons.system_update,
-                        size: 14,
-                        color: Colors.white70,
-                      ),
+                      const Icon(Icons.system_update, size: 14, color: AppColors.secondary),
                       const SizedBox(width: 6),
                       Expanded(
-                        child: Text(
-                          progress >= 1.0
-                              ? 'Update ready to install'
-                              : 'Downloading update... ${(progress * 100).toInt()}%',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                          ),
-                        ),
+                        child: Obx(() {
+                          final msg = _updateService.lastCheckMessage.value;
+                          return Text(
+                            msg.isNotEmpty ? msg : (progress >= 1.0 ? 'Update ready to install' : 'Downloading... ${(progress * 100).toInt()}%'),
+                            style: const TextStyle(fontSize: 11, color: AppColors.secondary),
+                          );
+                        }),
                       ),
-                      Text(
-                        '${(progress * 100).toInt()}%',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                      if (progress < 1.0 && progress >= 0)
+                        Text(
+                          '${(progress * 100).toInt()}%',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.secondary),
                         ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
                       value: progress.clamp(0.0, 1.0),
-                      backgroundColor: Colors.white24,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.white,
-                      ),
+                      backgroundColor: AppColors.secondary.withAlpha(25),
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.secondary),
                       minHeight: 4,
                     ),
                   ),
-                  const SizedBox(height: 2),
                 ],
               ),
             );
           }),
-        ),
-      ),
-      body: Obx(() {
-        if (_controller.isLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
+          // Main content
+          Expanded(
+            child: Obx(() {
+              if (_controller.isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
         // Read ALL reactive values here so the single Obx subscribes to everything
         final parcels = _controller.parcels;
@@ -569,7 +558,10 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
             ],
           ),
         );
-      }),
+            }),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           Get.snackbar(
