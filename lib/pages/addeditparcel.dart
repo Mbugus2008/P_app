@@ -370,7 +370,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     final (method, receipt) = result;
     setState(() {
       controller.paymentMethod = method;
-      controller.paid = true;
+      controller.paid = method != PaymentMethod.pending;
       if (method == PaymentMethod.mpesa && receipt != null) {
         controller.mpesaCodeController.text = receipt;
       } else {
@@ -380,7 +380,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
 
     if (controller.parcel != null) {
       controller.parcel!.paymentMethod = method;
-      controller.parcel!.Paid = true;
+      controller.parcel!.Paid = method != PaymentMethod.pending;
       controller.parcel!.mpesaCode = receipt;
     }
 
