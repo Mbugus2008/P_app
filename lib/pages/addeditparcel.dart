@@ -378,6 +378,12 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       }
     });
 
+    if (controller.parcel != null) {
+      controller.parcel!.paymentMethod = method;
+      controller.parcel!.Paid = true;
+      controller.parcel!.mpesaCode = receipt;
+    }
+
     // Persist payment for both cash and M-Pesa before showing receipt flow.
     if (controller.formKey.currentState!.validate()) {
       await _submitForm();
