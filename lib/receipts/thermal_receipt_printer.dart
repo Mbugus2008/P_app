@@ -198,6 +198,11 @@ class ThermalReceiptPrinter {
     }
     _printer.printCustom(_divider, 0, 1);
 
+    // Disclaimer
+    _printer.printCustom('Cash not carried — company not liable for cash loss.', 0, 0);
+    _printer.printCustom('Goods at owners risk. Conditions at offices.', 0, 0);
+    _printer.printCustom('Insure goods over KSh 1,000.', 0, 1);
+
     // Footer
     _printer.printNewLine();
     _printer.printCustom('Thank you for your business!', 0, 1);

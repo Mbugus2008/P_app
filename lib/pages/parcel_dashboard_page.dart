@@ -889,7 +889,6 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 parcel: parcel,
                 onPay: () => _controller.payForParcel(context, parcel),
                 onCollect: () => _showCollectConfirm(context, parcel),
-                onPrint: () => _printParcelForTesting(context, parcel),
               ),
             ),
           ),
@@ -1460,13 +1459,11 @@ class _ReceivedParcelCard extends StatelessWidget {
     required this.parcel,
     required this.onPay,
     required this.onCollect,
-    required this.onPrint,
   });
 
   final Parcel parcel;
   final VoidCallback onPay;
   final VoidCallback onCollect;
-  final VoidCallback onPrint;
 
   @override
   Widget build(BuildContext context) {
@@ -1569,55 +1566,38 @@ class _ReceivedParcelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onPrint,
-                  icon: const Icon(Icons.print, size: 18),
-                  label: const Text('Print'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child:
-                    isPaid
-                        ? ElevatedButton.icon(
-                          onPressed: onCollect,
-                          icon: const Icon(Icons.task_alt, size: 18),
-                          label: const Text('Collected'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: getStatusColor(
-                              ParcelStatus.collected,
-                            ),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        )
-                        : ElevatedButton.icon(
-                          onPressed: onPay,
-                          icon: const Icon(Icons.payment, size: 18),
-                          label: const Text('Pay'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
+          SizedBox(
+            width: double.infinity,
+            child:
+                isPaid
+                    ? ElevatedButton.icon(
+                      onPressed: onCollect,
+                      icon: const Icon(Icons.task_alt, size: 18),
+                      label: const Text('Collected'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: getStatusColor(
+                          ParcelStatus.collected,
                         ),
-              ),
-            ],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    )
+                    : ElevatedButton.icon(
+                      onPressed: onPay,
+                      icon: const Icon(Icons.payment, size: 18),
+                      label: const Text('Pay'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
           ),
         ],
       ),
