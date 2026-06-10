@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -195,15 +195,11 @@ class AppUpdateService extends GetxService {
     final file = File(path);
     if (!await file.exists()) return;
 
-    try {
-      const channel = MethodChannel('com.trimline.parcel/installer');
-      await channel.invokeMethod('installApk', {'path': path});
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('APK at: $path')),
-        );
-      }
+    final result = await OpenFilex.open(path);
+    if (result.type != ResultType.done && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open APK: ${result.message}')),
+      );
     }
   }
 }
