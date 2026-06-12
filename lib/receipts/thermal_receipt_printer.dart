@@ -199,14 +199,12 @@ class ThermalReceiptPrinter {
     _printer.printCustom(_divider, 0, 1);
 
     // Disclaimer
-    _printer.printCustom('Cash not carried — company not liable for cash loss.', 0, 1);
-    _printer.printCustom('Goods at owner\'s risk. Conditions at offices.', 0, 1);
+    _printer.printCustom('Cash not carried.', 0, 1);
+    _printer.printCustom('Company not liable for cash loss.', 0, 1);
+    _printer.printCustom('Goods at owner\'s risk.', 0, 1);
+    _printer.printCustom('Read Conditions at offices.', 0, 1);
     _printer.printCustom('Insure goods over KSh 1,000.', 0, 1);
 
-    // Footer
-    _printer.printNewLine();
-    _printer.printCustom('Thank you for your business!', 0, 1);
-    _printer.printCustom(_divider, 0, 1);
     _printer.printNewLine();
     _printer.printNewLine();
     _printer.paperCut();
@@ -345,5 +343,125 @@ class ThermalReceiptPrinter {
     _printer.printNewLine();
     _printer.printNewLine();
     _printer.paperCut();
+  }
+
+  Future<void> printReport({
+    required String title,
+    required String dateRange,
+    required List<String> columns,
+    required List<List<String>> rows,
+    int? totalCount,
+    double? totalAmount,
+    String? location,
+    String? printedBy,
+  }) async {
+    final isConnected = await this.isConnected();
+    if (!isConnected) {
+      throw Exception('Printer not connected');
+    }
+
+    _printer.printNewLine();
+    _printer.printCustom('REMBO CLASSIC SERVICES LTD', 1, 1);
+    _printer.printCustom('REPORT', 0, 1);
+    _printer.printCustom(title.toUpperCase(), 1, 1);
+    _printer.printCustom(dateRange, 0, 1);
+
+    if ((location != null && location.isNotEmpty) ||
+        (printedBy != null && printedBy.isNotEmpty)) {
+      _printer.printCustom('-' * _lineWidthChars, 0, 1);
+      if (location != null && location.isNotEmpty) {
+        _printer.printCustom(_labelValue('LOCATION:', location.toUpperCase()), 0, 0);
+      }
+      if (printedBy != null && printedBy.isNotEmpty) {
+        _printer.printCustom(_labelValue('PRINTED BY:', printedBy.toUpperCase()), 0, 0);
+      }
+    }
+
+    _printer.printCustom(
+      _labelValue(
+        'PRINTED:',
+        DateFormat('dd-MMM-yyyy HH:mm').format(DateTime.now()),
+      ),
+      0,
+      0,
+    );
+    _printer.printCustom(_divider, 0, 1);
+
+    if (totalCount != null) {
+      final countText = 'PARCELS: $totalCount';
+      _printer.printCustom(countText, 0, 0);
+      if (totalAmount != null && totalAmount > 0) {
+        final amtText =
+            'REVENUE: KES ${NumberFormat('#,##0').format(totalAmount)}';
+        _printer.printCustom(amtText, 0, 0);
+      }
+      _printer.printCustom(_divider, 0, 1);
+    }
+
+    if (columns.length <= 3) {
+      _printTabular(columns, rows);
+    } else {
+      _printBlocked(columns, rows);
+    }
+
+    _printer.printNewLine();
+    _printer.printNewLine();
+    _printer.paperCut();
+  }
+
+  void _printTabular(List<String> columns, List<List<String>> rows) {
+    final colCount = columns.length;
+    final widths = <int>[];
+    if (colCount == 1) {
+      widths.add(_lineWidthChars);
+    } else if (colCount == 2) {
+      widths.addAll([16, 16]);
+    } else {
+      widths.addAll([13, 8, 11]);
+    }
+
+    final headerParts = <String>[];
+    for (var i = 0; i < colCount; i++) {
+      headerParts.add(_padCell(columns[i].toUpperCase(), widths[i], i));
+    }
+    _printer.printCustom(headerParts.join(), 0, 0);
+    _printer.printCustom('-' * _lineWidthChars, 0, 1);
+
+    for (final row in rows) {
+      final parts = <String>[];
+      for (var i = 0; i < colCount && i < row.length; i++) {
+        parts.add(_padCell(row[i], widths[i], i));
+      }
+      final line = parts.join();
+      if (line.length > _lineWidthChars) {
+        _printer.printCustom(line.substring(0, _lineWidthChars), 0, 0);
+      } else {
+        _printer.printCustom(line, 0, 0);
+      }
+    }
+  }
+
+  void _printBlocked(List<String> columns, List<List<String>> rows) {
+    const labelWidth = 14;
+    const valueWidth = _lineWidthChars - labelWidth;
+
+    for (final row in rows) {
+      for (var i = 0; i < columns.length && i < row.length; i++) {
+        final label = columns[i].toUpperCase();
+        final value = row[i];
+        final paddedLabel = '$label: '.padRight(labelWidth);
+        final paddedValue = value.length > valueWidth
+            ? value.substring(0, valueWidth)
+            : value.padLeft(valueWidth);
+        _printer.printCustom('$paddedLabel$paddedValue', 0, 0);
+      }
+      _printer.printCustom('-' * _lineWidthChars, 0, 1);
+    }
+  }
+
+  String _padCell(String text, int width, int colIndex) {
+    if (text.length > width) return text.substring(0, width);
+    if (colIndex == 0) return text.padRight(width);
+    return text.padLeft(width);
   }
 }

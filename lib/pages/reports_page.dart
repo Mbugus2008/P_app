@@ -1,14 +1,20 @@
 import 'dart:io';
 
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../controllers/parcel_controller.dart';
 import '../database/database_helper.dart';
+import '../dialogs/printer_selector_dialog.dart';
+import '../receipts/thermal_receipt_printer.dart';
 import '../utilities/device_id.dart';
 import '../utils/app_colors.dart';
 
@@ -60,12 +66,14 @@ class _ReportsPageState extends State<ReportsPage> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final DateFormat _displayFormat = DateFormat('dd MMM yyyy');
   final DateFormat _csvDateFormat = DateFormat('yyyy-MM-dd');
+  final ThermalReceiptPrinter _thermalPrinter = ThermalReceiptPrinter();
 
   ReportType _selectedReport = ReportType.statusBreakdown;
   DateTime? _dateFrom;
   DateTime? _dateTo;
   bool _isLoading = false;
   bool _isExporting = false;
+  bool _isBluetoothPrinting = false;
   List<Map<String, dynamic>> _results = [];
   String? _error;
   String _deviceId = '';
@@ -73,8 +81,9 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   void initState() {
     super.initState();
-    _dateFrom = DateTime.now().subtract(const Duration(days: 30));
-    _dateTo = DateTime.now();
+    final today = DateTime.now();
+    _dateFrom = DateTime(today.year, today.month, today.day);
+    _dateTo = DateTime(today.year, today.month, today.day, 23, 59, 59);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initDeviceAndLoad());
   }
 
@@ -93,23 +102,59 @@ class _ReportsPageState extends State<ReportsPage> {
       List<Map<String, dynamic>> results;
       switch (_selectedReport) {
         case ReportType.statusBreakdown:
-          results = await _dbHelper.getStatusBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getStatusBreakdown(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.dailyVolume:
-          results = await _dbHelper.getDailyVolume(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getDailyVolume(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.revenue:
-          results = await _dbHelper.getRevenueBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getRevenueBreakdown(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.routePerformance:
-          results = await _dbHelper.getRoutePerformance(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getRoutePerformance(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.driverWorkload:
-          results = await _dbHelper.getDriverWorkload(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getDriverWorkload(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.vehicleWorkload:
-          results = await _dbHelper.getVehicleWorkload(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getVehicleWorkload(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.paymentMethod:
-          results = await _dbHelper.getPaymentMethodBreakdown(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getPaymentMethodBreakdown(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.batchPerformance:
-          results = await _dbHelper.getBatchPerformance(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getBatchPerformance(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
         case ReportType.activityLog:
-          results = await _dbHelper.getActivityLog(from: _dateFrom, to: _dateTo, deviceId: _deviceId);
+          results = await _dbHelper.getActivityLog(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+          );
       }
 
       if (!mounted) return;
@@ -135,17 +180,18 @@ class _ReportsPageState extends State<ReportsPage> {
         start: _dateFrom ?? DateTime.now().subtract(const Duration(days: 30)),
         end: _dateTo ?? DateTime.now(),
       ),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: Theme.of(context).colorScheme.copyWith(
-            primary: AppColors.primary,
-            onPrimary: Colors.white,
-            surface: AppColors.surface,
-            onSurface: AppColors.onSurface,
+      builder:
+          (context, child) => Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: Theme.of(context).colorScheme.copyWith(
+                primary: AppColors.primary,
+                onPrimary: Colors.white,
+                surface: AppColors.surface,
+                onSurface: AppColors.onSurface,
+              ),
+            ),
+            child: child!,
           ),
-        ),
-        child: child!,
-      ),
     );
 
     if (range != null) {
@@ -163,6 +209,91 @@ class _ReportsPageState extends State<ReportsPage> {
       _dateTo = null;
     });
     _loadReport();
+  }
+
+  Future<void> _printToBluetooth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMac = prefs.getString('printer_mac');
+
+    if (savedMac == null || savedMac.isEmpty) {
+      if (!mounted) return;
+      await showDialog<bool>(
+        context: context,
+        builder:
+            (ctx) => PrinterSelectorDialog(
+              onPrint: () async {
+                await _doBluetoothPrint();
+              },
+            ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isBluetoothPrinting = true;
+    });
+
+    try {
+      final device = BluetoothDevice('Saved Printer', savedMac);
+      final connected = await _thermalPrinter.connect(device);
+      if (!connected) {
+        if (mounted) {
+          setState(() => _isBluetoothPrinting = false);
+          await showDialog<bool>(
+            context: context,
+            builder:
+                (ctx) => PrinterSelectorDialog(
+                  onPrint: () async {
+                    await _doBluetoothPrint();
+                  },
+                ),
+          );
+        }
+        return;
+      }
+
+      await _doBluetoothPrint();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isBluetoothPrinting = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Bluetooth print failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _doBluetoothPrint() async {
+    final columns = _getColumns();
+    final rows = _getTableRows();
+    final totalCount = _totalCount();
+    final totalAmount = _totalAmount();
+    final controller = Get.find<ParcelController>();
+    final user = controller.loggedInUser;
+    final location =
+        (user?.location?.trim().isNotEmpty == true)
+            ? user!.location!.trim()
+            : controller.currentLocation.trim();
+    final printedBy =
+        (user?.name?.trim().isNotEmpty == true)
+            ? user!.name!.trim()
+            : user?.agentCode.trim();
+
+    await _thermalPrinter.printReport(
+      title: _selectedReport.label,
+      dateRange: _dateRangeLabel(),
+      columns: columns,
+      rows: rows,
+      totalCount: _selectedReport != ReportType.activityLog ? totalCount : null,
+      totalAmount:
+          _selectedReport != ReportType.activityLog ? totalAmount : null,
+      location: location.isNotEmpty ? location : null,
+      printedBy: printedBy?.isNotEmpty == true ? printedBy : null,
+    );
+
+    if (mounted) {
+      setState(() => _isBluetoothPrinting = false);
+    }
   }
 
   IconData _iconForReport(ReportType type) {
@@ -223,76 +354,120 @@ class _ReportsPageState extends State<ReportsPage> {
       case ReportType.batchPerformance:
         return ['Status', 'Batches', 'Parcels', 'Amount (KES)'];
       case ReportType.activityLog:
-        return ['Document', 'Date', 'Status', 'Sender', 'Receiver', 'Route', 'Amount (KES)'];
+        return [
+          'Document',
+          'Date',
+          'Status',
+          'Sender',
+          'Receiver',
+          'Route',
+          'Amount (KES)',
+        ];
     }
   }
 
   List<List<String>> _getTableRows() {
     switch (_selectedReport) {
       case ReportType.statusBreakdown:
-        return _results.map((r) => [
-          _formatStatus(r['Status']?.toString()),
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                _formatStatus(r['Status']?.toString()),
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.dailyVolume:
-        return _results.map((r) => [
-          _formatDateLabel(r['date']),
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                _formatDateLabel(r['date']),
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.revenue:
-        return _results.map((r) => [
-          _formatDateLabel(r['date']),
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-          _formatCurrency(r['paid_amount']),
-          _formatCurrency(r['unpaid_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                _formatDateLabel(r['date']),
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+                _formatCurrency(r['paid_amount']),
+                _formatCurrency(r['unpaid_amount']),
+              ],
+            )
+            .toList();
       case ReportType.routePerformance:
-        return _results.map((r) => [
-          r['source']?.toString() ?? '-',
-          r['destination']?.toString() ?? '-',
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                r['source']?.toString() ?? '-',
+                r['destination']?.toString() ?? '-',
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.driverWorkload:
-        return _results.map((r) => [
-          r['Driver']?.toString() ?? '-',
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                r['Driver']?.toString() ?? '-',
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.vehicleWorkload:
-        return _results.map((r) => [
-          r['Vehicle']?.toString() ?? '-',
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                r['Vehicle']?.toString() ?? '-',
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.paymentMethod:
-        return _results.map((r) => [
-          r['method']?.toString() ?? 'Pending',
-          '${r['count'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-          '${r['paid_count'] ?? 0}',
-          '${r['unpaid_count'] ?? 0}',
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                r['method']?.toString() ?? 'Pending',
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+                '${r['paid_count'] ?? 0}',
+                '${r['unpaid_count'] ?? 0}',
+              ],
+            )
+            .toList();
       case ReportType.batchPerformance:
-        return _results.map((r) => [
-          _formatStatus(r['Status']?.toString()),
-          '${r['count'] ?? 0}',
-          '${r['total_parcels'] ?? 0}',
-          _formatCurrency(r['total_amount']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                _formatStatus(r['Status']?.toString()),
+                '${r['count'] ?? 0}',
+                '${r['total_parcels'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+              ],
+            )
+            .toList();
       case ReportType.activityLog:
-        return _results.map((r) => [
-          r['Document_No']?.toString() ?? '-',
-          _formatDateLabel(r['Date_sent']),
-          _formatStatus(r['Status']?.toString()),
-          r['Sender_Name']?.toString() ?? '-',
-          r['Receiver_Name']?.toString() ?? '-',
-          '${r['From_Location'] ?? '?'} \u2192 ${r['To_Location'] ?? '?'}',
-          _formatCurrency(r['Amount_Paid']),
-        ]).toList();
+        return _results
+            .map(
+              (r) => [
+                r['Document_No']?.toString() ?? '-',
+                _formatDateLabel(r['Date_sent']),
+                _formatStatus(r['Status']?.toString()),
+                r['Sender_Name']?.toString() ?? '-',
+                r['Receiver_Name']?.toString() ?? '-',
+                '${r['From_Location'] ?? '?'} \u2192 ${r['To_Location'] ?? '?'}',
+                _formatCurrency(r['Amount_Paid']),
+              ],
+            )
+            .toList();
     }
   }
 
@@ -317,9 +492,9 @@ class _ReportsPageState extends State<ReportsPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Print failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Print failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _isExporting = false);
@@ -341,9 +516,9 @@ class _ReportsPageState extends State<ReportsPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _isExporting = false);
@@ -361,47 +536,67 @@ class _ReportsPageState extends State<ReportsPage> {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(24),
-        build: (context) => [
-          pw.Header(
-            level: 0,
-            child: pw.Text(
-              _selectedReport.label,
-              style: pw.TextStyle(
-                fontSize: 20,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromHex('#13678A'),
+        build:
+            (context) => [
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  _selectedReport.label,
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColor.fromHex('#13678A'),
+                  ),
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                _dateRangeLabel(),
+                style: const pw.TextStyle(
+                  fontSize: 11,
+                  color: PdfColors.grey700,
+                ),
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Generated: ${_csvDateFormat.format(DateTime.now())}',
+                style: const pw.TextStyle(
+                  fontSize: 9,
+                  color: PdfColors.grey500,
+                ),
+              ),
+              pw.SizedBox(height: 12),
+              if (_selectedReport != ReportType.activityLog)
+                pw.Row(
+                  children: [
+                    _pdfSummaryBox(
+                      'Total Parcels',
+                      totalCount.toString(),
+                      PdfColor.fromHex('#13678A'),
+                    ),
+                    pw.SizedBox(width: 12),
+                    _pdfSummaryBox(
+                      'Total Revenue',
+                      'KES ${_formatCurrency(totalAmount)}',
+                      PdfColor.fromHex('#2E7D32'),
+                    ),
+                  ],
+                ),
+              if (_selectedReport != ReportType.activityLog)
+                pw.SizedBox(height: 16),
+              _buildPdfTable(columns, rows),
+            ],
+        footer:
+            (context) => pw.Align(
+              alignment: pw.Alignment.center,
+              child: pw.Text(
+                'Page ${context.pageNumber} of ${context.pagesCount}',
+                style: const pw.TextStyle(
+                  fontSize: 9,
+                  color: PdfColors.grey500,
+                ),
               ),
             ),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Text(
-            _dateRangeLabel(),
-            style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Text(
-            'Generated: ${_csvDateFormat.format(DateTime.now())}',
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
-          ),
-          pw.SizedBox(height: 12),
-          if (_selectedReport != ReportType.activityLog)
-            pw.Row(
-              children: [
-                _pdfSummaryBox('Total Parcels', totalCount.toString(), PdfColor.fromHex('#13678A')),
-                pw.SizedBox(width: 12),
-                _pdfSummaryBox('Total Revenue', 'KES ${_formatCurrency(totalAmount)}', PdfColor.fromHex('#2E7D32')),
-              ],
-            ),
-          if (_selectedReport != ReportType.activityLog) pw.SizedBox(height: 16),
-          _buildPdfTable(columns, rows),
-        ],
-        footer: (context) => pw.Align(
-          alignment: pw.Alignment.center,
-          child: pw.Text(
-            'Page ${context.pageNumber} of ${context.pagesCount}',
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
-          ),
-        ),
       ),
     );
     return doc;
@@ -418,9 +613,19 @@ class _ReportsPageState extends State<ReportsPage> {
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(label, style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+            pw.Text(
+              label,
+              style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+            ),
             pw.SizedBox(height: 4),
-            pw.Text(value, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: color)),
+            pw.Text(
+              value,
+              style: pw.TextStyle(
+                fontSize: 14,
+                fontWeight: pw.FontWeight.bold,
+                color: color,
+              ),
+            ),
           ],
         ),
       ),
@@ -475,9 +680,9 @@ class _ReportsPageState extends State<ReportsPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _isExporting = false);
@@ -536,6 +741,21 @@ class _ReportsPageState extends State<ReportsPage> {
                 tooltip: 'Export CSV',
                 onPressed: _exportCsv,
               ),
+              IconButton(
+                icon:
+                    _isBluetoothPrinting
+                        ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                        : const Icon(Icons.bluetooth),
+                tooltip: 'Print via Bluetooth',
+                onPressed: _isBluetoothPrinting ? null : _printToBluetooth,
+              ),
             ],
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
@@ -544,12 +764,43 @@ class _ReportsPageState extends State<ReportsPage> {
                 if (value == 'pdf') _printPdf();
                 if (value == 'share_pdf') _sharePdf();
                 if (value == 'csv') _exportCsv();
+                if (value == 'bluetooth') _printToBluetooth();
               },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.print), title: Text('Print PDF'), dense: true)),
-                const PopupMenuItem(value: 'share_pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf), title: Text('Share PDF'), dense: true)),
-                const PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_chart_outlined), title: Text('Export CSV'), dense: true)),
-              ],
+              itemBuilder:
+                  (context) => [
+                    const PopupMenuItem(
+                      value: 'pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.print),
+                        title: Text('Print PDF'),
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'share_pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.picture_as_pdf),
+                        title: Text('Share PDF'),
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'csv',
+                      child: ListTile(
+                        leading: Icon(Icons.table_chart_outlined),
+                        title: Text('Export CSV'),
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'bluetooth',
+                      child: ListTile(
+                        leading: Icon(Icons.bluetooth),
+                        title: Text('Bluetooth Print'),
+                        dense: true,
+                      ),
+                    ),
+                  ],
             ),
             const SizedBox(width: 4),
           ],
@@ -579,9 +830,17 @@ class _ReportsPageState extends State<ReportsPage> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red.shade300,
+                            ),
                             const SizedBox(height: 12),
-                            Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red),
+                            ),
                           ],
                         ),
                       ),
@@ -595,7 +854,10 @@ class _ReportsPageState extends State<ReportsPage> {
                         children: [
                           Icon(Icons.inbox, size: 48, color: Colors.grey),
                           SizedBox(height: 12),
-                          Text('No data for the selected period', style: TextStyle(color: Colors.grey)),
+                          Text(
+                            'No data for the selected period',
+                            style: TextStyle(color: Colors.grey),
+                          ),
                         ],
                       ),
                     ),
@@ -631,97 +893,125 @@ class _ReportsPageState extends State<ReportsPage> {
         children: [
           Container(
             width: double.infinity,
-            padding: EdgeInsets.symmetric(vertical: 10, horizontal: isWide ? 12 : 8),
+            padding: EdgeInsets.symmetric(
+              vertical: 10,
+              horizontal: isWide ? 12 : 8,
+            ),
             decoration: BoxDecoration(
               color: AppColors.secondary.withAlpha(15),
               border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
-            child: isWide
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Reports',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.secondary,
-                          letterSpacing: 0.5,
+            child:
+                isWide
+                    ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Reports',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.secondary,
+                            letterSpacing: 0.5,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'This device',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: Colors.grey.shade500,
+                        const SizedBox(height: 2),
+                        Text(
+                          'This device',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.grey.shade500,
+                          ),
                         ),
-                      ),
-                    ],
-                  )
-                : const Icon(Icons.assessment, size: 22, color: AppColors.secondary),
+                      ],
+                    )
+                    : const Icon(
+                      Icons.assessment,
+                      size: 22,
+                      color: AppColors.secondary,
+                    ),
           ),
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
-              children: ReportType.values.map((type) {
-                final isSelected = _selectedReport == type;
-                return Material(
-                  color: isSelected ? AppColors.secondary.withAlpha(20) : Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      if (_selectedReport != type) {
-                        setState(() => _selectedReport = type);
-                        _loadReport();
-                      }
-                    },
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        vertical: 10,
-                        horizontal: isWide ? 12 : 0,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          left: BorderSide(
-                            color: isSelected ? AppColors.secondary : Colors.transparent,
-                            width: 3,
+              children:
+                  ReportType.values.map((type) {
+                    final isSelected = _selectedReport == type;
+                    return Material(
+                      color:
+                          isSelected
+                              ? AppColors.secondary.withAlpha(20)
+                              : Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          if (_selectedReport != type) {
+                            setState(() => _selectedReport = type);
+                            _loadReport();
+                          }
+                        },
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                            vertical: 10,
+                            horizontal: isWide ? 12 : 0,
                           ),
-                        ),
-                      ),
-                      child: isWide
-                          ? Row(
-                              children: [
-                                Icon(
-                                  _iconForReport(type),
-                                  size: 18,
-                                  color: isSelected ? AppColors.secondary : Colors.grey.shade600,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    type.label,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                                      color: isSelected ? AppColors.secondary : AppColors.onSurface,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Tooltip(
-                              message: type.label,
-                              child: Icon(
-                                _iconForReport(type),
-                                size: 22,
-                                color: isSelected ? AppColors.secondary : Colors.grey.shade500,
+                          decoration: BoxDecoration(
+                            border: Border(
+                              left: BorderSide(
+                                color:
+                                    isSelected
+                                        ? AppColors.secondary
+                                        : Colors.transparent,
+                                width: 3,
                               ),
                             ),
-                    ),
-                  ),
-                );
-              }).toList(),
+                          ),
+                          child:
+                              isWide
+                                  ? Row(
+                                    children: [
+                                      Icon(
+                                        _iconForReport(type),
+                                        size: 18,
+                                        color:
+                                            isSelected
+                                                ? AppColors.secondary
+                                                : Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          type.label,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight:
+                                                isSelected
+                                                    ? FontWeight.w600
+                                                    : FontWeight.normal,
+                                            color:
+                                                isSelected
+                                                    ? AppColors.secondary
+                                                    : AppColors.onSurface,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                  : Tooltip(
+                                    message: type.label,
+                                    child: Icon(
+                                      _iconForReport(type),
+                                      size: 22,
+                                      color:
+                                          isSelected
+                                              ? AppColors.secondary
+                                              : Colors.grey.shade500,
+                                    ),
+                                  ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
             ),
           ),
         ],
@@ -778,7 +1068,11 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
-  Widget _buildSummaryCards(ThemeData theme, int totalCount, double totalAmount) {
+  Widget _buildSummaryCards(
+    ThemeData theme,
+    int totalCount,
+    double totalAmount,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
@@ -820,7 +1114,9 @@ class _ReportsPageState extends State<ReportsPage> {
       scrollDirection: Axis.horizontal,
       child: SingleChildScrollView(
         child: DataTable(
-          headingRowColor: WidgetStateProperty.all(AppColors.secondary.withAlpha(25)),
+          headingRowColor: WidgetStateProperty.all(
+            AppColors.secondary.withAlpha(25),
+          ),
           headingTextStyle: const TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: 12,
@@ -830,11 +1126,12 @@ class _ReportsPageState extends State<ReportsPage> {
           columnSpacing: 16,
           horizontalMargin: 12,
           columns: columns.map((c) => DataColumn(label: Text(c))).toList(),
-          rows: rows.map((row) {
-            return DataRow(
-              cells: row.map((cell) => DataCell(Text(cell))).toList(),
-            );
-          }).toList(),
+          rows:
+              rows.map((row) {
+                return DataRow(
+                  cells: row.map((cell) => DataCell(Text(cell))).toList(),
+                );
+              }).toList(),
         ),
       ),
     );

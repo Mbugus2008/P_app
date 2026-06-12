@@ -704,8 +704,8 @@ class ParcelController extends GetxController {
             final isPaid = parcel.Paid == true;
             final msg =
                 isPaid
-                    ? 'Hello $name, your parcel $doc has arrived at $location. Please come and collect it. Thank you. - Trimline Parcel'
-                    : 'Hello $name, your parcel $doc has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. Please pay before collection. Thank you. - Trimline Parcel';
+                    ? 'Hello $name, your parcel $doc has arrived at $location. Please come and collect it. Thank you.'
+                    : 'Hello $name, your parcel $doc has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. Please pay before collection. Thank you.';
             smsMessages.add({'Phone': phone, 'Message': msg});
           }
         }
