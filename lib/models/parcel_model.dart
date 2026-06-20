@@ -41,6 +41,11 @@ class Parcel {
   bool receiptPrinted;
   String? Details = '';
   String? deviceId;
+  String? Payment_Received_By;
+  String? Created_By;
+  String? Received_By_ID;
+  String? Received_By_Phone;
+  String? Receiver_Code;
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -76,6 +81,11 @@ class Parcel {
     this.receiptPrinted = false,
     this.Details = '',
     this.deviceId,
+    this.Payment_Received_By,
+    this.Created_By,
+    this.Received_By_ID,
+    this.Received_By_Phone,
+    this.Receiver_Code,
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -112,6 +122,12 @@ class Parcel {
       'Is_Synced': isSynced,
       'Receipt_Printed': receiptPrinted,
       'Details': Details,
+      'Device_ID': deviceId,
+      'Payment_Received_By': Payment_Received_By,
+      'Created_By': Created_By,
+      'Received_By_ID': Received_By_ID,
+      'Received_By_Phone': Received_By_Phone,
+      'Receiver_Code': Receiver_Code,
       'Parcel_Details': parcelDetails.map((d) => d.toJson()).toList(),
     };
   }
@@ -190,6 +206,13 @@ class Parcel {
       ),
       Details: read(['Details', 'details']) as String?,
       deviceId: read(['deviceId', 'Device_ID', 'device_id']) as String?,
+      Payment_Received_By:
+          read([
+                'Payment_Received_By',
+                'payment_Received_By',
+                'paymentReceivedBy',
+              ])
+              as String?,
       parcelDetails:
           (read(['Parcel_Details', 'parcel_Details', 'parcelDetails']) as List?)
               ?.map(
@@ -244,6 +267,11 @@ class Parcel {
       'Is_Synced': (isSynced) ? 1 : 0,
       'Receipt_Printed': (receiptPrinted) ? 1 : 0,
       'Device_ID': deviceId,
+      'Payment_Received_By': Payment_Received_By,
+      'Created_By': Created_By,
+      'Received_By_ID': Received_By_ID,
+      'Received_By_Phone': Received_By_Phone,
+      'Receiver_Code': Receiver_Code,
     };
   }
 
@@ -281,6 +309,11 @@ class Parcel {
       isSynced: (map['Is_Synced'] as int? ?? 0) == 1,
       receiptPrinted: (map['Receipt_Printed'] as int? ?? 0) == 1,
       deviceId: map['Device_ID'] as String?,
+      Payment_Received_By: map['Payment_Received_By'] as String?,
+      Created_By: map['Created_By'] as String?,
+      Received_By_ID: map['Received_By_ID'] as String?,
+      Received_By_Phone: map['Received_By_Phone'] as String?,
+      Receiver_Code: map['Receiver_Code'] as String?,
     );
   }
 
@@ -336,6 +369,11 @@ class Parcel {
       'Notes': Notes,
       'Details': Details,
       'deviceId': deviceId,
+      'Payment_Received_By': Payment_Received_By,
+      'Created_By': Created_By,
+      'Received_By_ID': Received_By_ID,
+      'Received_By_Phone': Received_By_Phone,
+      'Receiver_Code': Receiver_Code,
     };
   }
 
@@ -385,6 +423,11 @@ class Parcel {
     bool? isSynced,
     bool? receiptPrinted,
     String? deviceId,
+    String? Payment_Received_By,
+    String? Created_By,
+    String? Received_By_ID,
+    String? Received_By_Phone,
+    String? Receiver_Code,
     List<Parcel_Details>? parcelDetails,
   }) {
     return Parcel(
@@ -421,6 +464,11 @@ class Parcel {
       isSynced: isSynced ?? this.isSynced,
       receiptPrinted: receiptPrinted ?? this.receiptPrinted,
       deviceId: deviceId ?? this.deviceId,
+      Payment_Received_By: Payment_Received_By ?? this.Payment_Received_By,
+      Created_By: Created_By ?? this.Created_By,
+      Received_By_ID: Received_By_ID ?? this.Received_By_ID,
+      Received_By_Phone: Received_By_Phone ?? this.Received_By_Phone,
+      Receiver_Code: Receiver_Code ?? this.Receiver_Code,
       parcelDetails: parcelDetails ?? this.parcelDetails,
     );
   }

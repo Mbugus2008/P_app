@@ -382,6 +382,9 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       controller.parcel!.paymentMethod = method;
       controller.parcel!.Paid = method != PaymentMethod.pending;
       controller.parcel!.mpesaCode = receipt;
+      // Track who received this payment
+      controller.parcel!.Payment_Received_By =
+          controller.loggedInUser?.agentCode;
     }
 
     // Persist payment for both cash and M-Pesa before showing receipt flow.
@@ -1125,6 +1128,9 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         Date_Delivered: controller.parcel?.Date_Delivered,
         Details: controller.parcel?.Details,
         deviceId: controller.parcel?.deviceId ?? existing?.deviceId,
+        Payment_Received_By:
+            controller.parcel?.Payment_Received_By ??
+            existing?.Payment_Received_By,
         parcelDetails: controller.parcel?.parcelDetails,
       );
 

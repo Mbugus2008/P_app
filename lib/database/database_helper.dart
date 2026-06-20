@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 16,
+      version: 19,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -70,6 +70,11 @@ class DatabaseHelper {
         Time_Delivered TEXT,
         Description TEXT,
         Details TEXT,
+        Payment_Received_By TEXT,
+        Created_By TEXT,
+        Received_By_ID TEXT,
+        Received_By_Phone TEXT,
+        Receiver_Code TEXT,
         Payment_Method TEXT,
         Mpesa_Code TEXT,
         Is_Synced INTEGER DEFAULT 0,
@@ -132,8 +137,12 @@ class DatabaseHelper {
     ''');
     // Note: Removed Created_At and Ref_No as they are not in the Parcel model
     //await _seedSampleParcels(db);
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -290,10 +299,14 @@ class DatabaseHelper {
 
     if (oldVersion < 15) {
       try {
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_parcels_date_sent ON $_tableName(Date_sent)',
+        );
       } catch (_) {}
       try {
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)');
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_batches_date ON $_batchesTableName(Date)',
+        );
       } catch (_) {}
     }
 
@@ -302,7 +315,45 @@ class DatabaseHelper {
         await db.execute('ALTER TABLE $_tableName ADD COLUMN Device_ID TEXT');
       } catch (_) {}
       try {
-        await db.execute('ALTER TABLE $_batchesTableName ADD COLUMN Device_ID TEXT');
+        await db.execute(
+          'ALTER TABLE $_batchesTableName ADD COLUMN Device_ID TEXT',
+        );
+      } catch (_) {}
+    }
+
+    if (oldVersion < 17) {
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Payment_Received_By TEXT',
+        );
+      } catch (_) {
+        // Column may already exist on some installs.
+      }
+    }
+
+    if (oldVersion < 18) {
+      try {
+        await db.execute('ALTER TABLE $_tableName ADD COLUMN Created_By TEXT');
+      } catch (_) {
+        // Column may already exist on some installs.
+      }
+    }
+
+    if (oldVersion < 19) {
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Received_By_ID TEXT',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Received_By_Phone TEXT',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Receiver_Code TEXT',
+        );
       } catch (_) {}
     }
   }
@@ -842,10 +893,13 @@ class DatabaseHelper {
   String _dateWhereClause(String dateField, {DateTime? from, DateTime? to}) {
     final conditions = <String>[];
     if (from != null) {
-      conditions.add("$dateField >= '${from.toIso8601String().split('T').first}'");
+      conditions.add(
+        "$dateField >= '${from.toIso8601String().split('T').first}'",
+      );
     }
     if (to != null) {
-      final nextDay = to.add(const Duration(days: 1)).toIso8601String().split('T').first;
+      final nextDay =
+          to.add(const Duration(days: 1)).toIso8601String().split('T').first;
       conditions.add("$dateField < '$nextDay'");
     }
     return conditions.isEmpty ? '1=1' : conditions.join(' AND ');
@@ -989,6 +1043,32 @@ class DatabaseHelper {
       GROUP BY method
       ORDER BY count DESC
     ''');
+  }
+
+  /// My Collections: payment breakdown for the logged-in agent
+  Future<List<Map<String, dynamic>>> getMyCollections({
+    DateTime? from,
+    DateTime? to,
+    required String deviceId,
+    required String agentCode,
+  }) async {
+    final db = await database;
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    return db.rawQuery(
+      '''
+      SELECT COALESCE(NULLIF(Payment_Method, ''), 'pending') as method,
+             COUNT(*) as count,
+             COALESCE(SUM(Amount_Paid), 0) as total_amount,
+             SUM(CASE WHEN Paid = 1 THEN 1 ELSE 0 END) as paid_count,
+             SUM(CASE WHEN Paid = 0 THEN 1 ELSE 0 END) as unpaid_count
+      FROM $_tableName
+      WHERE $dateWhere
+        AND Payment_Received_By = ?
+      GROUP BY method
+      ORDER BY count DESC
+    ''',
+      [agentCode],
+    );
   }
 
   /// Batch Performance: batch stats grouped by status

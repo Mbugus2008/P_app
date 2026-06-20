@@ -44,6 +44,7 @@ class ParcelController extends GetxController {
   final RxList<Batches> _pendingBatches = <Batches>[].obs;
   final RxList<Batches> _inTransitBatches = <Batches>[].obs;
   final RxList<Parcel> _receivedParcels = <Parcel>[].obs;
+  final RxSet<String> _receivingBatches = <String>{}.obs;
   bool _hasSyncedReferenceDataOnLogin = false;
   Future<void>? _referenceDataSyncFuture;
   Timer? _autoSyncTimer;
@@ -80,6 +81,7 @@ class ParcelController extends GetxController {
   int get inTransitBatchCount => _inTransitBatches.length;
   List<Parcel> get receivedParcels => _receivedParcels;
   int get receivedParcelCount => _receivedParcels.length;
+  bool isReceivingBatch(String batchNo) => _receivingBatches.contains(batchNo);
   String get loggedInUserLabel {
     final user = _loggedInUser.value;
     if (user == null) return 'Signed in';
@@ -446,10 +448,12 @@ class ParcelController extends GetxController {
       await _dbHelper.upsertBatches(batchesToSave);
     }
 
-    await loadParcels();
-    await loadPendingBatches();
-    await loadInTransitBatches();
-    await loadReceivedParcels();
+    if (summary.hasWork) {
+      await loadParcels(showLoadingIndicator: false);
+      await loadPendingBatches();
+      await loadInTransitBatches();
+      await loadReceivedParcels();
+    }
 
     return summary;
   }
@@ -640,7 +644,8 @@ class ParcelController extends GetxController {
   }
 
   Future<void> receiveBatch(Batches batch) async {
-    _isLoading.value = true;
+    final batchNo = batch.batchNo ?? '';
+    _receivingBatches.add(batchNo);
     try {
       final location = _currentLocation.value.trim();
 
@@ -674,6 +679,11 @@ class ParcelController extends GetxController {
         }
 
         if (parcel != null && parcel.Status != ParcelStatus.received) {
+          // Generate a 5-digit OTP for collection
+          final otp =
+              (10000 + (DateTime.now().millisecondsSinceEpoch % 90000))
+                  .toString();
+
           // Mark unsynced first so a concurrent pull cannot revert this change
           // before it is pushed to the backend.
           final updated = parcel.copyWith(
@@ -681,6 +691,7 @@ class ParcelController extends GetxController {
             Date_Delivered: DateTime.now(),
             Time_Delivered: DateTime.now(),
             isSynced: false,
+            Receiver_Code: otp,
           );
           await _dbHelper.updateParcel(updated);
 
@@ -704,8 +715,8 @@ class ParcelController extends GetxController {
             final isPaid = parcel.Paid == true;
             final msg =
                 isPaid
-                    ? 'Hello $name, your parcel $doc has arrived at $location. Please come and collect it. Thank you.'
-                    : 'Hello $name, your parcel $doc has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. Please pay before collection. Thank you.';
+                    ? 'Hello $name, your parcel $doc has arrived at $location. Collection code: $otp. Please come and collect it. Thank you.'
+                    : 'Hello $name, your parcel $doc has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. Collection code: $otp. Please pay before collection. Thank you.';
             smsMessages.add({'Phone': phone, 'Message': msg});
           }
         }
@@ -744,17 +755,31 @@ class ParcelController extends GetxController {
       if (kDebugMode) debugPrint('Error receiving batch: $e');
       _showSnack('Error', 'Failed to receive batch. Please try again.');
     } finally {
-      _isLoading.value = false;
+      _receivingBatches.remove(batchNo);
     }
   }
 
-  Future<void> collectParcel(Parcel parcel) async {
+  Future<void> collectParcel(
+    Parcel parcel, {
+    required String receivedByPhone,
+    required String enteredCode,
+    String receivedById = '',
+  }) async {
+    // Verify the OTP code
+    final expectedCode = parcel.Receiver_Code?.trim() ?? '';
+    if (expectedCode.isNotEmpty && enteredCode.trim() != expectedCode) {
+      _showSnack('Invalid Code', 'The collection code entered does not match.');
+      return;
+    }
+
     try {
       final updated = parcel.copyWith(
         Status: ParcelStatus.collected,
         Date_Collected: DateTime.now(),
         Time_Collected: DateTime.now(),
         isSynced: false,
+        Received_By_ID: receivedById.trim(),
+        Received_By_Phone: receivedByPhone.trim(),
       );
       await _dbHelper.updateParcel(updated);
 
@@ -765,7 +790,7 @@ class ParcelController extends GetxController {
         if (kDebugMode) debugPrint('Backend sync failed for collect: $e');
       }
 
-      await loadParcels();
+      await loadParcels(showLoadingIndicator: false);
       await loadReceivedParcels();
       _showSnack(
         'Collected',
@@ -934,12 +959,13 @@ class ParcelController extends GetxController {
     }
   }
 
-  Future<void> loadParcels() async {
-    _isLoading.value = true;
+  Future<void> loadParcels({bool showLoadingIndicator = true}) async {
+    if (showLoadingIndicator) {
+      _isLoading.value = true;
+    }
     try {
       final items = await _dbHelper.getAllParcels();
-      _parcels.assignAll(items);
-      _filterParcels();
+      _mergeParcels(items);
 
       // Auto-attach orphaned pending parcels to batches
       final orphans = items.where(
@@ -953,8 +979,7 @@ class ParcelController extends GetxController {
           await _dbHelper.updateParcel(p);
         }
         final fixed = await _dbHelper.getAllParcels();
-        _parcels.assignAll(fixed);
-        _filterParcels();
+        _mergeParcels(fixed);
         await loadPendingBatches();
       }
     } catch (e) {
@@ -965,8 +990,34 @@ class ParcelController extends GetxController {
       _filteredParcels.clear();
       _showSnack('Error', 'Failed to load parcels');
     } finally {
-      _isLoading.value = false;
+      if (showLoadingIndicator) {
+        _isLoading.value = false;
+      }
     }
+  }
+
+  /// Merges [items] into [_parcels]: updates existing parcels in place
+  /// and appends new ones at the end, preserving UI order.
+  void _mergeParcels(List<Parcel> items) {
+    final itemMap = <String, Parcel>{};
+    for (final item in items) {
+      final docNo = (item.Document_No ?? '').trim();
+      if (docNo.isNotEmpty) itemMap[docNo.toUpperCase()] = item;
+    }
+
+    for (var i = 0; i < _parcels.length; i++) {
+      final docNo = (_parcels[i].Document_No ?? '').trim().toUpperCase();
+      if (itemMap.containsKey(docNo)) {
+        _parcels[i] = itemMap[docNo]!;
+        itemMap.remove(docNo);
+      }
+    }
+
+    if (itemMap.isNotEmpty) {
+      _parcels.addAll(itemMap.values);
+    }
+
+    _filterParcels();
   }
 
   void setSearchQuery(String query) {
@@ -1129,6 +1180,7 @@ class ParcelController extends GetxController {
     try {
       parcel.Time_Created ??= DateTime.now();
       parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
+      parcel.Created_By ??= _loggedInUser.value?.agentCode;
       await _assignOrCreateBatch(parcel);
       await _dbHelper.insertParcel(parcel);
 

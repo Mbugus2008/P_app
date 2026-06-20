@@ -352,7 +352,9 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 color: Colors.white,
                 child: const LinearProgressIndicator(
                   backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.secondary),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    AppColors.secondary,
+                  ),
                 ),
               );
             }
@@ -365,21 +367,36 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.system_update, size: 14, color: AppColors.secondary),
+                      const Icon(
+                        Icons.system_update,
+                        size: 14,
+                        color: AppColors.secondary,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Obx(() {
                           final msg = _updateService.lastCheckMessage.value;
                           return Text(
-                            msg.isNotEmpty ? msg : (progress >= 1.0 ? 'Update ready to install' : 'Downloading... ${(progress * 100).toInt()}%'),
-                            style: const TextStyle(fontSize: 11, color: AppColors.secondary),
+                            msg.isNotEmpty
+                                ? msg
+                                : (progress >= 1.0
+                                    ? 'Update ready to install'
+                                    : 'Downloading... ${(progress * 100).toInt()}%'),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.secondary,
+                            ),
                           );
                         }),
                       ),
                       if (progress < 1.0 && progress >= 0)
                         Text(
                           '${(progress * 100).toInt()}%',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.secondary),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.secondary,
+                          ),
                         ),
                     ],
                   ),
@@ -389,7 +406,9 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                     child: LinearProgressIndicator(
                       value: progress.clamp(0.0, 1.0),
                       backgroundColor: AppColors.secondary.withAlpha(25),
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.secondary),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppColors.secondary,
+                      ),
                       minHeight: 4,
                     ),
                   ),
@@ -404,160 +423,173 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 return const Center(child: CircularProgressIndicator());
               }
 
-        // Read ALL reactive values here so the single Obx subscribes to everything
-        final parcels = _controller.parcels;
-        final grouped = _controller.parcelsByStatus;
-        final sectionExpanded = _sectionExpanded.value;
-        final batchExpanded = _batchExpanded.value;
-        final pendingBatches = _controller.pendingBatches;
-        final inTransitBatches = _controller.inTransitBatches;
-        final receivedParcels = _controller.receivedParcels;
+              // Read ALL reactive values here so the single Obx subscribes to everything
+              final parcels = _controller.parcels;
+              final grouped = _controller.parcelsByStatus;
+              final sectionExpanded = _sectionExpanded.value;
+              final batchExpanded = _batchExpanded.value;
+              final pendingBatches = _controller.pendingBatches;
+              final inTransitBatches = _controller.inTransitBatches;
+              final receivedParcels = _controller.receivedParcels;
 
-        if (parcels.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _refreshDashboard,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 24),
-              children: [
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.5,
-                  child: Center(
-                    child: Text(
-                      'No parcels available yet',
-                      style: theme.textTheme.titleMedium,
+              if (parcels.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: _refreshDashboard,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 24,
                     ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final pendingBatchesCount = _controller.pendingBatchCount;
-        final inTransit = _controller.inTransitBatchCount;
-        final received = _controller.receivedParcelCount;
-        final collected =
-            (grouped[ParcelStatus.collected] ?? const <Parcel>[]).length;
-
-        return RefreshIndicator(
-          onRefresh: _refreshDashboard,
-          child: ListView(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-            children: [
-              // Collapsible summary section
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black12),
-                ),
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      onTap:
-                          () => setState(
-                            () => _isSummaryExpanded = !_isSummaryExpanded,
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.5,
+                        child: Center(
+                          child: Text(
+                            'No parcels available yet',
+                            style: theme.textTheme.titleMedium,
                           ),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Summary',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final pendingBatchesCount = _controller.pendingBatchCount;
+              final inTransit = _controller.inTransitBatchCount;
+              final received = _controller.receivedParcelCount;
+              final collected =
+                  (grouped[ParcelStatus.collected] ?? const <Parcel>[]).length;
+
+              return RefreshIndicator(
+                onRefresh: _refreshDashboard,
+                child: ListView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                  children: [
+                    // Collapsible summary section
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.black12),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          InkWell(
+                            onTap:
+                                () => setState(
+                                  () =>
+                                      _isSummaryExpanded = !_isSummaryExpanded,
+                                ),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    'Summary',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  AnimatedRotation(
+                                    turns: _isSummaryExpanded ? 0.5 : 0,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: const Icon(
+                                      Icons.expand_more,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const Spacer(),
-                            AnimatedRotation(
-                              turns: _isSummaryExpanded ? 0.5 : 0,
-                              duration: const Duration(milliseconds: 200),
-                              child: const Icon(Icons.expand_more, size: 20),
+                          ),
+                          AnimatedCrossFade(
+                            firstChild: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _MetricTile(
+                                    title: 'Pending Batches',
+                                    value: pendingBatchesCount.toString(),
+                                    icon: Icons.schedule,
+                                    color: getStatusColor(ParcelStatus.pending),
+                                  ),
+                                  _MetricTile(
+                                    title: 'In Transit',
+                                    value: inTransit.toString(),
+                                    icon: Icons.local_shipping,
+                                    color: getStatusColor(
+                                      ParcelStatus.inTransit,
+                                    ),
+                                  ),
+                                  _MetricTile(
+                                    title: 'Received',
+                                    value: received.toString(),
+                                    icon: Icons.inventory_2,
+                                    color: getStatusColor(
+                                      ParcelStatus.received,
+                                    ),
+                                  ),
+                                  _MetricTile(
+                                    title: 'Collected',
+                                    value: collected.toString(),
+                                    icon: Icons.task_alt,
+                                    color: getStatusColor(
+                                      ParcelStatus.collected,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                            secondChild: const SizedBox.shrink(),
+                            crossFadeState:
+                                _isSummaryExpanded
+                                    ? CrossFadeState.showFirst
+                                    : CrossFadeState.showSecond,
+                            duration: const Duration(milliseconds: 200),
+                          ),
+                        ],
                       ),
                     ),
-                    AnimatedCrossFade(
-                      firstChild: Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _MetricTile(
-                              title: 'Pending Batches',
-                              value: pendingBatchesCount.toString(),
-                              icon: Icons.schedule,
-                              color: getStatusColor(ParcelStatus.pending),
-                            ),
-                            _MetricTile(
-                              title: 'In Transit',
-                              value: inTransit.toString(),
-                              icon: Icons.local_shipping,
-                              color: getStatusColor(ParcelStatus.inTransit),
-                            ),
-                            _MetricTile(
-                              title: 'Received',
-                              value: received.toString(),
-                              icon: Icons.inventory_2,
-                              color: getStatusColor(ParcelStatus.received),
-                            ),
-                            _MetricTile(
-                              title: 'Collected',
-                              value: collected.toString(),
-                              icon: Icons.task_alt,
-                              color: getStatusColor(ParcelStatus.collected),
-                            ),
-                          ],
-                        ),
-                      ),
-                      secondChild: const SizedBox.shrink(),
-                      crossFadeState:
-                          _isSummaryExpanded
-                              ? CrossFadeState.showFirst
-                              : CrossFadeState.showSecond,
-                      duration: const Duration(milliseconds: 200),
+                    const SizedBox(height: 10),
+                    // Pending batches section
+                    _buildPendingBatchesSection(
+                      theme,
+                      pendingBatches,
+                      sectionExpanded,
+                      batchExpanded,
                     ),
+                    const SizedBox(height: 10),
+                    // In Transit batches section
+                    _buildInTransitSection(
+                      theme,
+                      inTransitBatches,
+                      sectionExpanded,
+                      batchExpanded,
+                    ),
+                    const SizedBox(height: 10),
+                    // Received parcels section
+                    _buildReceivedSection(
+                      theme,
+                      context,
+                      receivedParcels,
+                      sectionExpanded,
+                    ),
+                    const SizedBox(height: 10),
+                    // Collected section
+                    _buildCollectedSection(theme, grouped, sectionExpanded),
                   ],
                 ),
-              ),
-              const SizedBox(height: 10),
-              // Pending batches section
-              _buildPendingBatchesSection(
-                theme,
-                pendingBatches,
-                sectionExpanded,
-                batchExpanded,
-              ),
-              const SizedBox(height: 10),
-              // In Transit batches section
-              _buildInTransitSection(
-                theme,
-                inTransitBatches,
-                sectionExpanded,
-                batchExpanded,
-              ),
-              const SizedBox(height: 10),
-              // Received parcels section
-              _buildReceivedSection(
-                theme,
-                context,
-                receivedParcels,
-                sectionExpanded,
-              ),
-              const SizedBox(height: 10),
-              // Collected section
-              _buildCollectedSection(theme, grouped, sectionExpanded),
-            ],
-          ),
-        );
+              );
             }),
           ),
         ],
@@ -752,16 +784,16 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
               ),
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                '${batches.length} batches',
-                style: theme.textTheme.labelMedium?.copyWith(
+                '${batches.length}',
+                style: theme.textTheme.titleMedium?.copyWith(
                   color: color,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
@@ -898,33 +930,128 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   }
 
   Future<void> _showCollectConfirm(BuildContext ctx, Parcel parcel) async {
-    final confirmed = await showDialog<bool>(
+    final idCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+
+    final result = await showDialog<Map<String, String>>(
       context: ctx,
       builder:
           (dialogCtx) => AlertDialog(
-            title: const Text('Confirm Collection'),
-            content: Text(
-              'Has parcel ${parcel.Document_No ?? ''} been collected by ${parcel.Receiver_Name ?? 'the receiver'}?',
+            title: const Text('Collect Parcel'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${parcel.Document_No ?? ''} - ${parcel.Receiver_Name ?? 'Receiver'}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Receiver Phone',
+                        prefixIcon: Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: idCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Receiver ID',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: codeCtrl,
+                      keyboardType: TextInputType.number,
+                      maxLength: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'Collection Code (5 digits)',
+                        prefixIcon: Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(),
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          idCtrl.text = parcel.Receiver_ID?.trim() ?? '';
+                          phoneCtrl.text = parcel.Receiver_Phone?.trim() ?? '';
+                        },
+                        icon: const Icon(Icons.person_pin, size: 18),
+                        label: const Text('Use Receiver Details'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(dialogCtx, false),
+                onPressed: () => Navigator.pop(dialogCtx),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                onPressed: () => Navigator.pop(dialogCtx, true),
+                onPressed: () {
+                  final id = idCtrl.text.trim();
+                  final phone = phoneCtrl.text.trim();
+                  final code = codeCtrl.text.trim();
+                  if (phone.isEmpty || code.isEmpty) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Phone and Collection Code are required'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+                  if (code.length != 5) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Collection Code must be 5 digits'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogCtx, {
+                    'id': id,
+                    'phone': phone,
+                    'code': code,
+                  });
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: getStatusColor(ParcelStatus.collected),
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Collected'),
+                child: const Text('Collect'),
               ),
             ],
           ),
     );
-    if (confirmed == true) {
-      await _controller.collectParcel(parcel);
+
+    if (result != null) {
+      await _controller.collectParcel(
+        parcel,
+        receivedByPhone: result['phone']!,
+        enteredCode: result['code']!,
+        receivedById: result['id']!,
+      );
     }
+
+    idCtrl.dispose();
+    phoneCtrl.dispose();
+    codeCtrl.dispose();
   }
 
   Future<void> _printParcelForTesting(
@@ -1008,6 +1135,13 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
       ),
     );
   }
+}
+
+class _DispatchDialogResult {
+  const _DispatchDialogResult({required this.vehicle, required this.driver});
+
+  final String vehicle;
+  final String driver;
 }
 
 class _MetricTile extends StatelessWidget {
@@ -1365,21 +1499,23 @@ class _InTransitBatchCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '${batch.fromLocation ?? '-'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
                   Row(
                     children: [
+                      Expanded(
+                        child: Text(
+                          '${batch.fromLocation ?? '-'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Icon(
                         Icons.local_shipping_outlined,
                         size: 13,
-                        color: Colors.black54,
+                        color: color,
                       ),
                       const SizedBox(width: 4),
                       Flexible(
@@ -1392,7 +1528,11 @@ class _InTransitBatchCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
                       Icon(
                         Icons.person_outline,
                         size: 13,
@@ -1429,23 +1569,37 @@ class _InTransitBatchCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: onReceive,
-              icon: const Icon(Icons.check_circle_outline, size: 16),
-              label: const Text('Receive'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: getStatusColor(ParcelStatus.received),
-                foregroundColor: Colors.white,
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+            Obx(() {
+              final ctrl = Get.find<ParcelController>();
+              final isRcv = ctrl.isReceivingBatch(batch.batchNo ?? '');
+              return ElevatedButton.icon(
+                onPressed: isRcv ? null : onReceive,
+                icon:
+                    isRcv
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                        : const Icon(Icons.check_circle_outline, size: 16),
+                label: Text(isRcv ? 'Receiving...' : 'Receive'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: getStatusColor(ParcelStatus.received),
+                  foregroundColor: Colors.white,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
+              );
+            }),
           ],
         ),
         children: [...parcelItems],
@@ -1575,9 +1729,7 @@ class _ReceivedParcelCard extends StatelessWidget {
                       icon: const Icon(Icons.task_alt, size: 18),
                       label: const Text('Collected'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: getStatusColor(
-                          ParcelStatus.collected,
-                        ),
+                        backgroundColor: getStatusColor(ParcelStatus.collected),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -2177,13 +2329,6 @@ class _BatchCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _DispatchDialogResult {
-  const _DispatchDialogResult({required this.vehicle, required this.driver});
-
-  final String vehicle;
-  final String driver;
 }
 
 class _DispatchDialog extends StatefulWidget {

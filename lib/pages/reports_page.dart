@@ -28,6 +28,7 @@ enum ReportType {
   paymentMethod,
   batchPerformance,
   activityLog,
+  myCollections,
 }
 
 extension ReportTypeLabel on ReportType {
@@ -51,24 +52,79 @@ extension ReportTypeLabel on ReportType {
         return 'Batch Performance';
       case ReportType.activityLog:
         return 'Activity Log';
+      case ReportType.myCollections:
+        return 'My Collections';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case ReportType.statusBreakdown:
+        return Icons.pie_chart;
+      case ReportType.dailyVolume:
+        return Icons.calendar_today;
+      case ReportType.revenue:
+        return Icons.attach_money;
+      case ReportType.routePerformance:
+        return Icons.route;
+      case ReportType.driverWorkload:
+        return Icons.person;
+      case ReportType.vehicleWorkload:
+        return Icons.local_shipping;
+      case ReportType.paymentMethod:
+        return Icons.payment;
+      case ReportType.batchPerformance:
+        return Icons.inventory;
+      case ReportType.activityLog:
+        return Icons.history;
+      case ReportType.myCollections:
+        return Icons.account_balance_wallet;
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case ReportType.statusBreakdown:
+        return const Color(0xFF13678A);
+      case ReportType.dailyVolume:
+        return const Color(0xFFE67E22);
+      case ReportType.revenue:
+        return const Color(0xFF2E7D32);
+      case ReportType.routePerformance:
+        return const Color(0xFF5C6BC0);
+      case ReportType.driverWorkload:
+        return const Color(0xFF8E24AA);
+      case ReportType.vehicleWorkload:
+        return const Color(0xFF6D4C41);
+      case ReportType.paymentMethod:
+        return const Color(0xFF00897B);
+      case ReportType.batchPerformance:
+        return const Color(0xFF546E7A);
+      case ReportType.activityLog:
+        return const Color(0xFF757575);
+      case ReportType.myCollections:
+        return const Color(0xFFC62828);
     }
   }
 }
 
 class ReportsPage extends StatefulWidget {
-  const ReportsPage({super.key});
+  final ReportType? initialReport;
+
+  const ReportsPage({super.key, this.initialReport});
 
   @override
   State<ReportsPage> createState() => _ReportsPageState();
 }
 
 class _ReportsPageState extends State<ReportsPage> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final DateFormat _displayFormat = DateFormat('dd MMM yyyy');
   final DateFormat _csvDateFormat = DateFormat('yyyy-MM-dd');
   final ThermalReceiptPrinter _thermalPrinter = ThermalReceiptPrinter();
 
-  ReportType _selectedReport = ReportType.statusBreakdown;
+  late ReportType _selectedReport;
   DateTime? _dateFrom;
   DateTime? _dateTo;
   bool _isLoading = false;
@@ -81,6 +137,7 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   void initState() {
     super.initState();
+    _selectedReport = widget.initialReport ?? ReportType.myCollections;
     final today = DateTime.now();
     _dateFrom = DateTime(today.year, today.month, today.day);
     _dateTo = DateTime(today.year, today.month, today.day, 23, 59, 59);
@@ -154,6 +211,15 @@ class _ReportsPageState extends State<ReportsPage> {
             from: _dateFrom,
             to: _dateTo,
             deviceId: _deviceId,
+          );
+        case ReportType.myCollections:
+          final controller = Get.find<ParcelController>();
+          final agentCode = controller.loggedInUser?.agentCode ?? '';
+          results = await _dbHelper.getMyCollections(
+            from: _dateFrom,
+            to: _dateTo,
+            deviceId: _deviceId,
+            agentCode: agentCode,
           );
       }
 
@@ -296,29 +362,6 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
-  IconData _iconForReport(ReportType type) {
-    switch (type) {
-      case ReportType.statusBreakdown:
-        return Icons.pie_chart;
-      case ReportType.dailyVolume:
-        return Icons.calendar_today;
-      case ReportType.revenue:
-        return Icons.attach_money;
-      case ReportType.routePerformance:
-        return Icons.route;
-      case ReportType.driverWorkload:
-        return Icons.person;
-      case ReportType.vehicleWorkload:
-        return Icons.local_shipping;
-      case ReportType.paymentMethod:
-        return Icons.payment;
-      case ReportType.batchPerformance:
-        return Icons.inventory;
-      case ReportType.activityLog:
-        return Icons.history;
-    }
-  }
-
   int _totalCount() {
     return _results.fold<int>(
       0,
@@ -363,6 +406,8 @@ class _ReportsPageState extends State<ReportsPage> {
           'Route',
           'Amount (KES)',
         ];
+      case ReportType.myCollections:
+        return ['Method', 'Count', 'Amount (KES)', 'Paid', 'Unpaid'];
     }
   }
 
@@ -465,6 +510,18 @@ class _ReportsPageState extends State<ReportsPage> {
                 r['Receiver_Name']?.toString() ?? '-',
                 '${r['From_Location'] ?? '?'} \u2192 ${r['To_Location'] ?? '?'}',
                 _formatCurrency(r['Amount_Paid']),
+              ],
+            )
+            .toList();
+      case ReportType.myCollections:
+        return _results
+            .map(
+              (r) => [
+                r['method']?.toString() ?? 'Pending',
+                '${r['count'] ?? 0}',
+                _formatCurrency(r['total_amount']),
+                '${r['paid_count'] ?? 0}',
+                '${r['unpaid_count'] ?? 0}',
               ],
             )
             .toList();
@@ -700,12 +757,16 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final totalCount = _totalCount();
     final totalAmount = _totalAmount();
 
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
         title: const Text('Reports'),
         backgroundColor: AppColors.secondary,
         foregroundColor: Colors.white,
@@ -811,215 +872,123 @@ class _ReportsPageState extends State<ReportsPage> {
           ),
         ],
       ),
-      body: Row(
-        children: [
-          _buildSidebar(theme),
-          Expanded(
-            child: Column(
-              children: [
-                _buildDateFilter(theme),
-                if (_isLoading)
-                  const Expanded(
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (_error != null)
-                  Expanded(
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 48,
-                              color: Colors.red.shade300,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _error!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  )
-                else if (_results.isEmpty)
-                  const Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.inbox, size: 48, color: Colors.grey),
-                          SizedBox(height: 12),
-                          Text(
-                            'No data for the selected period',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: Column(
-                      children: [
-                        if (_selectedReport != ReportType.activityLog)
-                          _buildSummaryCards(theme, totalCount, totalAmount),
-                        Expanded(child: _buildResultsTable(theme)),
-                      ],
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: AppColors.secondary),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Icon(Icons.assessment, size: 32, color: Colors.white70),
+                  const SizedBox(height: 8),
+                  Text(
+                    _selectedReport.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            ...ReportType.values.map((type) {
+              final isSelected = _selectedReport == type;
+              return ListTile(
+                leading: Icon(type.icon, size: 20, color: type.color),
+                title: Text(
+                  type.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color:
+                        isSelected ? AppColors.secondary : AppColors.onSurface,
+                  ),
+                ),
+                selected: isSelected,
+                selectedTileColor: AppColors.secondary.withAlpha(20),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                onTap: () {
+                  if (_selectedReport != type) {
+                    setState(() => _selectedReport = type);
+                    Navigator.of(context).pop();
+                    _loadReport();
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
+              );
+            }),
+          ],
+        ),
       ),
-    );
-  }
-
-  Widget _buildSidebar(ThemeData theme) {
-    final isWide = MediaQuery.of(context).size.width >= 400;
-
-    return Container(
-      width: isWide ? 170 : 56,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(right: BorderSide(color: Colors.grey.shade200)),
-      ),
-      child: Column(
+      body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.symmetric(
-              vertical: 10,
-              horizontal: isWide ? 12 : 8,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.secondary.withAlpha(15),
-              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-            ),
-            child:
-                isWide
-                    ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Reports',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.secondary,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'This device',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    )
-                    : const Icon(
-                      Icons.assessment,
-                      size: 22,
-                      color: AppColors.secondary,
-                    ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children:
-                  ReportType.values.map((type) {
-                    final isSelected = _selectedReport == type;
-                    return Material(
-                      color:
-                          isSelected
-                              ? AppColors.secondary.withAlpha(20)
-                              : Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          if (_selectedReport != type) {
-                            setState(() => _selectedReport = type);
-                            _loadReport();
-                          }
-                        },
-                        child: Container(
-                          padding: EdgeInsets.symmetric(
-                            vertical: 10,
-                            horizontal: isWide ? 12 : 0,
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              left: BorderSide(
-                                color:
-                                    isSelected
-                                        ? AppColors.secondary
-                                        : Colors.transparent,
-                                width: 3,
-                              ),
-                            ),
-                          ),
-                          child:
-                              isWide
-                                  ? Row(
-                                    children: [
-                                      Icon(
-                                        _iconForReport(type),
-                                        size: 18,
-                                        color:
-                                            isSelected
-                                                ? AppColors.secondary
-                                                : Colors.grey.shade600,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          type.label,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight:
-                                                isSelected
-                                                    ? FontWeight.w600
-                                                    : FontWeight.normal,
-                                            color:
-                                                isSelected
-                                                    ? AppColors.secondary
-                                                    : AppColors.onSurface,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                  : Tooltip(
-                                    message: type.label,
-                                    child: Icon(
-                                      _iconForReport(type),
-                                      size: 22,
-                                      color:
-                                          isSelected
-                                              ? AppColors.secondary
-                                              : Colors.grey.shade500,
-                                    ),
-                                  ),
-                        ),
+          _buildDateFilter(),
+          if (_isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else if (_error != null)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.red.shade300,
                       ),
-                    );
-                  }).toList(),
+                      const SizedBox(height: 12),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else if (_results.isEmpty)
+            const Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.inbox, size: 48, color: Colors.grey),
+                    SizedBox(height: 12),
+                    Text(
+                      'No data for the selected period',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: Column(
+                children: [
+                  if (_selectedReport != ReportType.activityLog)
+                    _buildSummaryCards(totalCount, totalAmount),
+                  Expanded(child: _buildResultsTable()),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildDateFilter(ThemeData theme) {
+  Widget _buildDateFilter() {
     final hasFilter = _dateFrom != null || _dateTo != null;
     return Container(
       width: double.infinity,
@@ -1068,11 +1037,7 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
-  Widget _buildSummaryCards(
-    ThemeData theme,
-    int totalCount,
-    double totalAmount,
-  ) {
+  Widget _buildSummaryCards(int totalCount, double totalAmount) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
@@ -1099,7 +1064,7 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
-  Widget _buildResultsTable(ThemeData theme) {
+  Widget _buildResultsTable() {
     final columns = _getColumns();
     final rows = _getTableRows();
 
