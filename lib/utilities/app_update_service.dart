@@ -3,14 +3,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/app_version_info.dart';
 
 class AppUpdateService extends GetxService {
+  static const _channel = MethodChannel('com.trimline.parcel/installer');
+
   final RxDouble downloadProgress = (-1.0).obs;
   final RxBool isDownloading = false.obs;
   final RxBool updateReady = false.obs;
@@ -42,12 +44,13 @@ class AppUpdateService extends GetxService {
       final local = await PackageInfo.fromPlatform();
       final localCode = int.tryParse(local.buildNumber) ?? 0;
 
-      final client = HttpClient()
-        ..badCertificateCallback = (_, __, ___) => true;
+      final client =
+          HttpClient()..badCertificateCallback = (_, __, ___) => true;
       client.connectionTimeout = const Duration(seconds: 30);
       try {
-        final req = await client
-            .getUrl(Uri.parse('https://nav.trimline.co.ke:4013/api/AppUpdate/android'));
+        final req = await client.getUrl(
+          Uri.parse('https://nav.trimline.co.ke:4013/api/AppUpdate/android'),
+        );
         final resp = await req.close().timeout(const Duration(seconds: 20));
 
         if (resp.statusCode != 200) {
@@ -110,8 +113,8 @@ class AppUpdateService extends GetxService {
       downloadProgress.value = 0.0;
       lastCheckMessage.value = 'Starting download...';
 
-      final dir = await getApplicationDocumentsDirectory();
-      final apkDir = Directory('${dir.path}/apk_downloads');
+      final dir = await getTemporaryDirectory();
+      final apkDir = Directory('${dir.path}');
       if (!await apkDir.exists()) await apkDir.create(recursive: true);
 
       final filePath = '${apkDir.path}/parcel_v${version.versionCode}.apk';
@@ -130,8 +133,8 @@ class AppUpdateService extends GetxService {
         await file.delete();
       }
 
-      final client = HttpClient()
-        ..badCertificateCallback = (_, __, ___) => true;
+      final client =
+          HttpClient()..badCertificateCallback = (_, __, ___) => true;
       client.connectionTimeout = const Duration(seconds: 30);
       try {
         final req = await client.getUrl(Uri.parse(version.downloadUrl));
@@ -156,12 +159,14 @@ class AppUpdateService extends GetxService {
             downloadProgress.value = received / total;
             final pct = (received * 100 / total).toStringAsFixed(0);
             final mb = received / (1024 * 1024);
-            lastCheckMessage.value = 'Downloading... $pct% (${mb.toStringAsFixed(1)} MB)';
+            lastCheckMessage.value =
+                'Downloading... $pct% (${mb.toStringAsFixed(1)} MB)';
           } else {
             final mb = received / (1024 * 1024);
-            lastCheckMessage.value = mb < 1
-                ? 'Downloading... ${(received / 1024).toStringAsFixed(0)} KB'
-                : 'Downloading... ${mb.toStringAsFixed(1)} MB';
+            lastCheckMessage.value =
+                mb < 1
+                    ? 'Downloading... ${(received / 1024).toStringAsFixed(0)} KB'
+                    : 'Downloading... ${mb.toStringAsFixed(1)} MB';
           }
         }
 
@@ -172,13 +177,15 @@ class AppUpdateService extends GetxService {
         _downloadedApkPath = filePath;
         downloadProgress.value = 1.0;
         updateReady.value = true;
-        lastCheckMessage.value = 'Download complete (${(received / (1024 * 1024)).toStringAsFixed(1)} MB)';
+        lastCheckMessage.value =
+            'Download complete (${(received / (1024 * 1024)).toStringAsFixed(1)} MB)';
       } finally {
         client.close();
       }
     } catch (e) {
       final msg = '$e'.split('\n').first;
-      lastCheckMessage.value = 'Download error: ${msg.length > 80 ? msg.substring(0, 80) : msg}';
+      lastCheckMessage.value =
+          'Download error: ${msg.length > 80 ? msg.substring(0, 80) : msg}';
       downloadProgress.value = -1;
       _downloadedApkPath = null;
     } finally {
@@ -188,18 +195,39 @@ class AppUpdateService extends GetxService {
 
   String? get downloadedApkPath => _downloadedApkPath;
 
-  Future<void> installUpdate(BuildContext context) async {
+  /// Install silently using PackageInstaller (skips OpenFilex dialog)
+  Future<bool> installSilent() async {
     final path = _downloadedApkPath;
-    if (path == null) return;
-
+    if (path == null) return false;
     final file = File(path);
-    if (!await file.exists()) return;
+    if (!await file.exists()) return false;
 
-    final result = await OpenFilex.open(path);
-    if (result.type != ResultType.done && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open APK: ${result.message}')),
-      );
+    try {
+      await _channel.invokeMethod('installApkSilent', {'path': path});
+      return true;
+    } catch (e) {
+      // Fallback to standard install
+      try {
+        await _channel.invokeMethod('installApk', {'path': path});
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  /// Standard install with system dialog
+  Future<bool> installUpdate() async {
+    final path = _downloadedApkPath;
+    if (path == null) return false;
+    final file = File(path);
+    if (!await file.exists()) return false;
+
+    try {
+      await _channel.invokeMethod('installApk', {'path': path});
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 }

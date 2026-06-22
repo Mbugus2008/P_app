@@ -44,10 +44,10 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     _updateService = Get.find<AppUpdateService>();
     _loadAppVersion();
 
-    // Listen for when the download finishes to prompt installation.
+    // Listen for when the download finishes — auto-install silently
     _updateService.updateReady.listen((ready) {
       if (ready && mounted) {
-        _promptInstallUpdate();
+        _autoInstallUpdate();
       }
     });
   }
@@ -64,48 +64,29 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     }
   }
 
-  Future<void> _promptInstallUpdate() async {
+  /// Auto-install silently — no "Ready" dialog, goes direct to system prompt
+  Future<void> _autoInstallUpdate() async {
     final version = _updateService.pendingVersion;
     if (version == null || !mounted) return;
 
-    final dialog = AlertDialog(
-      title: Text('Update v${version.version} Ready'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('A new version is ready to install.'),
-          if (version.releaseNotes != null &&
-              version.releaseNotes!.trim().isNotEmpty) ...<Widget>[
-            const SizedBox(height: 8),
-            Text(
-              version.releaseNotes!,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        if (!version.forceUpdate)
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Later'),
-          ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _updateService.installUpdate(context);
-          },
-          child: const Text('Install Now'),
-        ),
-      ],
-    );
+    // Brief delay so user sees the download complete indicator
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
 
-    // Small delay to ensure the download progress indicator is seen first.
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted) {
-      await showDialog(context: context, builder: (_) => dialog);
+    final ok = await _updateService.installSilent();
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Update ready — tap to install'),
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(label: 'Install', onPressed: () => _retryInstall()),
+        ),
+      );
     }
+  }
+
+  void _retryInstall() {
+    _updateService.installSilent();
   }
 
   GlobalKey _getKey(String id) {
@@ -1802,10 +1783,17 @@ class _AccordionTile extends StatelessWidget {
           firstChild: const SizedBox.shrink(),
           secondChild: Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: children,
+                ),
+              ),
             ),
           ),
           crossFadeState:
@@ -2282,6 +2270,24 @@ class _BatchCard extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 34,
+              child: ElevatedButton.icon(
+                onPressed: onDispatch,
+                icon: const Icon(Icons.local_shipping, size: 16),
+                label: const Text('Dispatch'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: color,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
           ],
         ),
         children: [
@@ -2309,22 +2315,6 @@ class _BatchCard extends StatelessWidget {
             ),
           ...parcelItems,
           const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onDispatch,
-              icon: const Icon(Icons.local_shipping, size: 18),
-              label: const Text('Dispatch Batch'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: color,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
