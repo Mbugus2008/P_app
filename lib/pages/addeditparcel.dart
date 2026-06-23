@@ -382,9 +382,11 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       controller.parcel!.paymentMethod = method;
       controller.parcel!.Paid = method != PaymentMethod.pending;
       controller.parcel!.mpesaCode = receipt;
-      // Track who received this payment
+      // Track who received this payment — only when actually paying
       controller.parcel!.Payment_Received_By =
-          controller.loggedInUser?.agentCode;
+          method != PaymentMethod.pending
+              ? controller.loggedInUser?.agentCode
+              : null;
     }
 
     // Persist payment for both cash and M-Pesa before showing receipt flow.
@@ -820,6 +822,22 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 ),
             ],
           ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue:
+              (parcel.Parcel_Value ?? 0) > 0
+                  ? parcel.Parcel_Value!.toStringAsFixed(0)
+                  : '',
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Parcel Value (KES)',
+            prefixIcon: Icon(Icons.attach_money_outlined),
+          ),
+          onChanged: (value) {
+            controller.parcel!.Parcel_Value =
+                double.tryParse(value.trim()) ?? 0;
+          },
+        ),
       ],
     );
   }
@@ -1127,6 +1145,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         Date_Collected: controller.parcel?.Date_Collected,
         Date_Delivered: controller.parcel?.Date_Delivered,
         Details: controller.parcel?.Details,
+        Parcel_Value: controller.parcel?.Parcel_Value,
         deviceId: controller.parcel?.deviceId ?? existing?.deviceId,
         Payment_Received_By:
             controller.parcel?.Payment_Received_By ??

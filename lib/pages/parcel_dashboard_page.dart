@@ -30,6 +30,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   bool _isSummaryExpanded = true;
   final _sectionExpanded = ''.obs;
   final _batchExpanded = ''.obs;
+  final _searchQuery = ''.obs;
   String _appVersion = '';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
@@ -79,7 +80,10 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         SnackBar(
           content: const Text('Update ready — tap to install'),
           duration: const Duration(seconds: 5),
-          action: SnackBarAction(label: 'Install', onPressed: () => _retryInstall()),
+          action: SnackBarAction(
+            label: 'Install',
+            onPressed: () => _retryInstall(),
+          ),
         ),
       );
     }
@@ -437,11 +441,25 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 );
               }
 
-              final pendingBatchesCount = _controller.pendingBatchCount;
+              final pending =
+                  (grouped[ParcelStatus.pending] ?? const <Parcel>[]).length;
               final inTransit = _controller.inTransitBatchCount;
               final received = _controller.receivedParcelCount;
               final collected =
                   (grouped[ParcelStatus.collected] ?? const <Parcel>[]).length;
+
+              // Filter helper for in-section search
+              bool match(Parcel p) {
+                final q = _searchQuery.value.trim().toLowerCase();
+                if (q.isEmpty) return true;
+                return (p.Document_No ?? '').toLowerCase().contains(q) ||
+                    (p.Sender_Name ?? '').toLowerCase().contains(q) ||
+                    (p.Sender_Phone ?? '').toLowerCase().contains(q) ||
+                    (p.Receiver_Name ?? '').toLowerCase().contains(q) ||
+                    (p.Receiver_Phone ?? '').toLowerCase().contains(q) ||
+                    (p.From ?? '').toLowerCase().contains(q) ||
+                    (p.To ?? '').toLowerCase().contains(q);
+              }
 
               return RefreshIndicator(
                 onRefresh: _refreshDashboard,
@@ -450,6 +468,38 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                   children: [
+                    // Search bar
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TextField(
+                        onChanged: (v) => _searchQuery.value = v,
+                        decoration: InputDecoration(
+                          hintText: 'Search parcels...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon:
+                              _searchQuery.value.isNotEmpty
+                                  ? IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () => _searchQuery.value = '',
+                                  )
+                                  : null,
+                          filled: true,
+                          fillColor: AppColors.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.black12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.black12),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ),
                     // Collapsible summary section
                     Container(
                       decoration: BoxDecoration(
@@ -499,8 +549,8 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                                 runSpacing: 8,
                                 children: [
                                   _MetricTile(
-                                    title: 'Pending Batches',
-                                    value: pendingBatchesCount.toString(),
+                                    title: 'Pending',
+                                    value: pending.toString(),
                                     icon: Icons.schedule,
                                     color: getStatusColor(ParcelStatus.pending),
                                   ),
@@ -548,6 +598,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                       pendingBatches,
                       sectionExpanded,
                       batchExpanded,
+                      match: match,
                     ),
                     const SizedBox(height: 10),
                     // In Transit batches section
@@ -556,18 +607,24 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                       inTransitBatches,
                       sectionExpanded,
                       batchExpanded,
+                      match: match,
                     ),
                     const SizedBox(height: 10),
                     // Received parcels section
                     _buildReceivedSection(
                       theme,
                       context,
-                      receivedParcels,
+                      receivedParcels.where(match).toList(),
                       sectionExpanded,
                     ),
                     const SizedBox(height: 10),
                     // Collected section
-                    _buildCollectedSection(theme, grouped, sectionExpanded),
+                    _buildCollectedSection(
+                      theme,
+                      grouped,
+                      sectionExpanded,
+                      match: match,
+                    ),
                   ],
                 ),
               );
@@ -601,8 +658,9 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     ThemeData theme,
     List<Batches> batches,
     String sectionExpanded,
-    String batchExpanded,
-  ) {
+    String batchExpanded, {
+    bool Function(Parcel)? match,
+  }) {
     if (batches.isEmpty) {
       return _StatusSectionCard(
         key: _getKey('status-pending'),
@@ -726,8 +784,9 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     ThemeData theme,
     List<Batches> batches,
     String sectionExpanded,
-    String batchExpanded,
-  ) {
+    String batchExpanded, {
+    bool Function(Parcel)? match,
+  }) {
     final color = getStatusColor(ParcelStatus.inTransit);
 
     if (batches.isEmpty) {
@@ -914,110 +973,114 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     final idCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     final codeCtrl = TextEditingController();
+    var errorMsg = '';
 
     final result = await showDialog<Map<String, String>>(
       context: ctx,
       builder:
-          (dialogCtx) => AlertDialog(
-            title: const Text('Collect Parcel'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${parcel.Document_No ?? ''} - ${parcel.Receiver_Name ?? 'Receiver'}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Receiver Phone',
-                        prefixIcon: Icon(Icons.phone_outlined),
-                        border: OutlineInputBorder(),
+          (dialogCtx) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('Collect Parcel'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${parcel.Document_No ?? ''} - ${parcel.Receiver_Name ?? 'Receiver'}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: idCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Receiver ID',
-                        prefixIcon: Icon(Icons.badge_outlined),
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Receiver Phone',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: codeCtrl,
-                      keyboardType: TextInputType.number,
-                      maxLength: 5,
-                      decoration: const InputDecoration(
-                        labelText: 'Collection Code (5 digits)',
-                        prefixIcon: Icon(Icons.lock_outline),
-                        border: OutlineInputBorder(),
-                        counterText: '',
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: idCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Receiver ID',
+                          prefixIcon: Icon(Icons.badge_outlined),
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          idCtrl.text = parcel.Receiver_ID?.trim() ?? '';
-                          phoneCtrl.text = parcel.Receiver_Phone?.trim() ?? '';
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: codeCtrl,
+                        keyboardType: TextInputType.number,
+                        maxLength: 5,
+                        onChanged: (_) {
+                          if (errorMsg.isNotEmpty) {
+                            setDialogState(() => errorMsg = '');
+                          }
                         },
-                        icon: const Icon(Icons.person_pin, size: 18),
-                        label: const Text('Use Receiver Details'),
+                        decoration: InputDecoration(
+                          labelText: 'Collection Code (5 digits)',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          border: const OutlineInputBorder(),
+                          counterText: '',
+                          errorText: errorMsg.isNotEmpty ? errorMsg : null,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            idCtrl.text = parcel.Receiver_ID?.trim() ?? '';
+                            phoneCtrl.text = parcel.Receiver_Phone?.trim() ?? '';
+                          },
+                          icon: const Icon(Icons.person_pin, size: 18),
+                          label: const Text('Use Receiver Details'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final id = idCtrl.text.trim();
+                    final phone = phoneCtrl.text.trim();
+                    final code = codeCtrl.text.trim();
+                    if (phone.isEmpty || code.isEmpty) {
+                      setDialogState(() => errorMsg = 'Phone and Collection Code are required');
+                      return;
+                    }
+                    if (code.length != 5) {
+                      setDialogState(() => errorMsg = 'Collection Code must be 5 digits');
+                      return;
+                    }
+                    final expected = (parcel.Receiver_Code ?? '').trim();
+                    if (expected.isNotEmpty && code != expected) {
+                      setDialogState(() => errorMsg = 'Incorrect collection code');
+                      return;
+                    }
+                    Navigator.pop(dialogCtx, {
+                      'id': id,
+                      'phone': phone,
+                      'code': code,
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: getStatusColor(ParcelStatus.collected),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Collect'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogCtx),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  final id = idCtrl.text.trim();
-                  final phone = phoneCtrl.text.trim();
-                  final code = codeCtrl.text.trim();
-                  if (phone.isEmpty || code.isEmpty) {
-                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
-                      const SnackBar(
-                        content: Text('Phone and Collection Code are required'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    return;
-                  }
-                  if (code.length != 5) {
-                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
-                      const SnackBar(
-                        content: Text('Collection Code must be 5 digits'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                    return;
-                  }
-                  Navigator.pop(dialogCtx, {
-                    'id': id,
-                    'phone': phone,
-                    'code': code,
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: getStatusColor(ParcelStatus.collected),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Collect'),
-              ),
-            ],
           ),
     );
 
@@ -1029,10 +1092,6 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         receivedById: result['id']!,
       );
     }
-
-    idCtrl.dispose();
-    phoneCtrl.dispose();
-    codeCtrl.dispose();
   }
 
   Future<void> _printParcelForTesting(
@@ -1061,9 +1120,11 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   Widget _buildCollectedSection(
     ThemeData theme,
     Map<ParcelStatus, List<Parcel>> grouped,
-    String sectionExpanded,
-  ) {
-    final parcels = grouped[ParcelStatus.collected] ?? const <Parcel>[];
+    String sectionExpanded, {
+    bool Function(Parcel)? match,
+  }) {
+    final all = grouped[ParcelStatus.collected] ?? const <Parcel>[];
+    final parcels = match != null ? all.where(match).toList() : all;
     final color = getStatusColor(ParcelStatus.collected);
 
     return Container(
@@ -1708,9 +1769,9 @@ class _ReceivedParcelCard extends StatelessWidget {
                     ? ElevatedButton.icon(
                       onPressed: onCollect,
                       icon: const Icon(Icons.task_alt, size: 18),
-                      label: const Text('Collected'),
+                      label: const Text('Mark Collected'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: getStatusColor(ParcelStatus.collected),
+                        backgroundColor: Colors.red,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -1814,6 +1875,9 @@ class _CollectedParcelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = getStatusColor(ParcelStatus.collected);
+    final createdDate =
+        parcel.Date_Created ?? parcel.Date_sent ?? DateTime.now();
+    final collectedDate = parcel.Date_Collected ?? DateTime.now();
 
     return Container(
       decoration: BoxDecoration(
@@ -1834,36 +1898,97 @@ class _CollectedParcelCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      parcel.Document_No ?? '-',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Receiver: ${parcel.Receiver_Name ?? '-'} | ${parcel.Receiver_Phone ?? '-'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                DateFormat('dd MMM').format(
-                  parcel.Date_Collected ?? parcel.Date_sent ?? DateTime.now(),
-                ),
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: Colors.black54,
+                child: Text(
+                  parcel.Document_No ?? '-',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          _infoRow(theme, Icons.person, 'Sender', parcel.Sender_Name ?? '-'),
+          _infoRow(
+            theme,
+            Icons.person_outline,
+            'Receiver',
+            parcel.Receiver_Name ?? '-',
+          ),
+          _infoRow(theme, Icons.arrow_forward, 'From', parcel.From ?? '-'),
+          _infoRow(theme, Icons.location_on, 'To', parcel.To ?? '-'),
+          if ((parcel.Received_By_ID?.isNotEmpty == true) ||
+              (parcel.Received_By_Phone?.isNotEmpty == true))
+            _infoRow(
+              theme,
+              Icons.check_circle_outline,
+              'Collected by',
+              [
+                if (parcel.Received_By_ID?.isNotEmpty == true)
+                  parcel.Received_By_ID!,
+                if (parcel.Received_By_Phone?.isNotEmpty == true)
+                  parcel.Received_By_Phone!,
+              ].join(' | '),
+            ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              _dateChip(theme, Icons.calendar_today, 'Created', createdDate),
+              const SizedBox(width: 8),
+              _dateChip(theme, Icons.task_alt, 'Collected', collectedDate),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(ThemeData theme, IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: Colors.black38),
+          const SizedBox(width: 6),
+          Text(
+            '$label: ',
+            style: theme.textTheme.bodySmall?.copyWith(color: Colors.black45),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateChip(
+    ThemeData theme,
+    IconData icon,
+    String label,
+    DateTime date,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: Colors.black45),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ${DateFormat('dd MMM yy').format(date)}',
+            style: theme.textTheme.labelSmall?.copyWith(color: Colors.black54),
           ),
         ],
       ),
@@ -2280,7 +2405,10 @@ class _BatchCard extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: color,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 0,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),

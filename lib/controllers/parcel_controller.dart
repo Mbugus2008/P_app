@@ -6,6 +6,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/database_helper.dart';
@@ -335,6 +336,7 @@ class ParcelController extends GetxController {
       final unsyncedParcels = await _dbHelper.getUnsyncedParcels();
       for (final parcel in unsyncedParcels) {
         try {
+          await _ensureParcelDefaults(parcel);
           await _apiClient.createParcel(parcel);
           await _dbHelper.updateParcel(parcel.copyWith(isSynced: true));
           summary.pushedParcels++;
@@ -429,7 +431,19 @@ class ParcelController extends GetxController {
                         ),
                   )
                   .toList();
+      // Fix location names → codes on pulled parcels before saving
+      _fixParcelLocations(parcelsToSave);
       await _dbHelper.upsertParcels(parcelsToSave);
+
+      // Clean up parcels deleted on BC but still local
+      if (parcelsPulled && pulledParcels.isNotEmpty) {
+        final pulledDocNos =
+            pulledParcels
+                .map((p) => (p.Document_No ?? '').trim().toUpperCase())
+                .where((d) => d.isNotEmpty)
+                .toSet();
+        await _dbHelper.deleteOrphanParcels(pulledDocNos);
+      }
     }
 
     if (batchesPulled) {
@@ -456,6 +470,20 @@ class ParcelController extends GetxController {
     }
 
     return summary;
+  }
+
+  /// Fix location names → codes on pulled parcels before saving to DB.
+  void _fixParcelLocations(List<Parcel> parcels) {
+    final locationCode = currentLocationCode;
+    final locationName = currentLocationName;
+    if (locationCode.isEmpty || locationName.isEmpty) return;
+
+    for (final p in parcels) {
+      final fromVal = (p.From ?? '').trim();
+      if (fromVal.toLowerCase() == locationName.toLowerCase()) {
+        p.From = locationCode;
+      }
+    }
   }
 
   List<Parcel> _attachBatchNumbersToParcels(
@@ -605,14 +633,21 @@ class ParcelController extends GetxController {
         _inTransitBatches.clear();
         return;
       }
-      final batches = await _dbHelper.getInTransitBatchesForLocation(locations);
-      final validBatches =
-          batches.where((batch) {
-            return batch.parcelDocumentNos
-                .where((d) => d.trim().isNotEmpty)
-                .isNotEmpty;
-          }).toList();
-      _inTransitBatches.assignAll(validBatches);
+      // Load both incoming AND outgoing in-transit batches
+      final incoming = await _dbHelper.getInTransitBatchesForLocation(
+        locations,
+      );
+      final outgoing = await _dbHelper.getDispatchedBatchesForLocation(
+        locations,
+      );
+      // Merge, deduplicate by batchNo
+      final seen = <String>{};
+      final merged = <Batches>[];
+      for (final b in [...incoming, ...outgoing]) {
+        final key = (b.batchNo ?? '').trim().toUpperCase();
+        if (key.isNotEmpty && seen.add(key)) merged.add(b);
+      }
+      _inTransitBatches.assignAll(merged);
     } catch (e) {
       if (kDebugMode) debugPrint('Error loading in-transit batches: $e');
     }
@@ -710,13 +745,14 @@ class ParcelController extends GetxController {
           final phone = parcel.Receiver_Phone?.trim() ?? '';
           if (phone.isNotEmpty) {
             final name = parcel.Receiver_Name?.trim() ?? 'Customer';
+            final sender = parcel.Sender_Name?.trim() ?? 'Unknown Sender';
             final doc = parcel.Document_No ?? '';
             final amount = parcel.Amount_Paid ?? 0;
             final isPaid = parcel.Paid == true;
             final msg =
                 isPaid
-                    ? 'Hello $name, your parcel $doc has arrived at $location. Collection code: $otp. Please come and collect it. Thank you.'
-                    : 'Hello $name, your parcel $doc has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. Collection code: $otp. Please pay before collection. Thank you.';
+                    ? 'Hello $name, your Parcel $doc from $sender has arrived at $location. COLLECTION CODE: $otp. Please come and collect it. Thank you.'
+                    : 'Hello $name, your Parcel $doc from $sender has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. COLLECTION CODE: $otp. Please pay before collection. Thank you.';
             smsMessages.add({'Phone': phone, 'Message': msg});
           }
         }
@@ -810,6 +846,7 @@ class ParcelController extends GetxController {
         Paid: true,
         paymentMethod: PaymentMethod.cash,
         isSynced: false,
+        Payment_Received_By: _loggedInUser.value?.agentCode,
       );
       await _dbHelper.updateParcel(updated);
       try {
@@ -841,6 +878,7 @@ class ParcelController extends GetxController {
       paymentMethod: method,
       mpesaCode: receiptCode,
       isSynced: false,
+      Payment_Received_By: isPayLater ? null : _loggedInUser.value?.agentCode,
     );
     await _dbHelper.updateParcel(updated);
 
@@ -1178,9 +1216,29 @@ class ParcelController extends GetxController {
   Future<void> addParcel(Parcel parcel) async {
     _isLoading.value = true;
     try {
-      parcel.Time_Created ??= DateTime.now();
+      // Ensure null/invalid dates are set to now
+      final now = DateTime.now();
+      if (parcel.Date_Created == null ||
+          (parcel.Date_Created?.year ?? 0) <= 1) {
+        parcel.Date_Created = now;
+      }
+      if (parcel.Time_Created == null ||
+          (parcel.Time_Created?.year ?? 0) <= 1) {
+        parcel.Time_Created = now;
+      }
+      if (parcel.Time_Sent == null || (parcel.Time_Sent?.year ?? 0) <= 1) {
+        parcel.Time_Sent = now;
+      }
       parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
       parcel.Created_By ??= _loggedInUser.value?.agentCode;
+      parcel.App_Version ??= (await PackageInfo.fromPlatform()).version;
+      if (kDebugMode) {
+        debugPrint(
+          'addParcel: App_Version=${parcel.App_Version}, '
+          'Date_Created=${parcel.Date_Created}, '
+          'Created_By=${parcel.Created_By}',
+        );
+      }
       await _assignOrCreateBatch(parcel);
       await _dbHelper.insertParcel(parcel);
 
@@ -1199,6 +1257,59 @@ class ParcelController extends GetxController {
     }
   }
 
+  /// Backfill missing defaults on existing parcels before syncing to BC.
+  Future<void> _ensureParcelDefaults(Parcel parcel) async {
+    final now = DateTime.now();
+    var changed = false;
+
+    if (parcel.Date_Created == null || (parcel.Date_Created?.year ?? 0) <= 1) {
+      parcel.Date_Created = now;
+      changed = true;
+    }
+    if (parcel.Time_Created == null || (parcel.Time_Created?.year ?? 0) <= 1) {
+      parcel.Time_Created = now;
+      changed = true;
+    }
+    if (parcel.Time_Sent == null || (parcel.Time_Sent?.year ?? 0) <= 1) {
+      parcel.Time_Sent = now;
+      changed = true;
+    }
+    if ((parcel.Created_By ?? '').trim().isEmpty) {
+      parcel.Created_By = _loggedInUser.value?.agentCode;
+      changed = true;
+    }
+    if ((parcel.App_Version ?? '').trim().isEmpty) {
+      parcel.App_Version = (await PackageInfo.fromPlatform()).version;
+      changed = true;
+    }
+    if ((parcel.Parcel_Value ?? 0) <= 0) {
+      // Don't force a value — 0 might be intentional
+    }
+
+    // Fix From location: replace name with code if it matches
+    final locationCode = currentLocationCode;
+    final locationName = currentLocationName;
+    if (locationCode.isNotEmpty && locationName.isNotEmpty) {
+      final fromVal = (parcel.From ?? '').trim();
+      if (fromVal.toLowerCase() == locationName.toLowerCase()) {
+        parcel.From = locationCode;
+        changed = true;
+      }
+    }
+
+    // Clear Payment_Received_By on unpaid parcels (bug fix: was set even for "Pay Later")
+    final isUnpaid =
+        parcel.Paid != true || parcel.paymentMethod == PaymentMethod.pending;
+    if (isUnpaid && (parcel.Payment_Received_By ?? '').trim().isNotEmpty) {
+      parcel.Payment_Received_By = null;
+      changed = true;
+    }
+
+    if (changed) {
+      await _dbHelper.updateParcel(parcel);
+    }
+  }
+
   Future<void> _assignOrCreateBatch(Parcel parcel) async {
     final from = parcel.From?.trim() ?? '';
     final to = parcel.To?.trim() ?? '';
@@ -1213,6 +1324,11 @@ class ParcelController extends GetxController {
       existingBatch.totalAmount =
           (existingBatch.totalAmount ?? 0) + (parcel.Amount_Paid ?? 0);
       existingBatch.updatedAt = DateTime.now();
+      // Always refresh locations from latest parcel (fixes old name→code)
+      existingBatch.fromLocation = from;
+      existingBatch.toLocation = to;
+      existingBatch.sourceLocation = from;
+      existingBatch.destinationLocation = to;
       await _dbHelper.updateBatch(existingBatch);
 
       return;
@@ -1276,7 +1392,15 @@ class ParcelController extends GetxController {
   Future<void> updateParcel(Parcel parcel) async {
     _isLoading.value = true;
     try {
+      // Preserve fields that addParcel sets but _submitForm doesn't include
+      final existing = await _dbHelper.getParcel(parcel.Document_No ?? '');
+      if (existing != null) {
+        parcel.Date_Created ??= existing.Date_Created;
+        parcel.Time_Created ??= existing.Time_Created;
+        parcel.Created_By ??= existing.Created_By;
+      }
       parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
+      parcel.App_Version ??= (await PackageInfo.fromPlatform()).version;
       await _dbHelper.updateParcel(parcel);
 
       // Only sync to backend if already dispatched
@@ -1373,7 +1497,7 @@ class ParcelController extends GetxController {
   }
 
   Parcel _buildEmptyParcel(String documentNo) {
-    final loggedLocation = _currentLocation.value.trim();
+    final loggedLocation = currentLocationCode;
     return Parcel(
       Document_No: documentNo,
       Date_sent: DateTime.now(),
@@ -1405,7 +1529,7 @@ class ParcelController extends GetxController {
   }
 
   void populateFormWithParcel(Parcel parcel) {
-    final loggedLocation = _currentLocation.value.trim();
+    final loggedLocation = currentLocationCode;
     final parcelFrom = parcel.From?.trim() ?? '';
     documentNoController.text = parcel.Document_No ?? '';
     senderNameController.text = parcel.Sender_Name ?? '';

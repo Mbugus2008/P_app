@@ -234,6 +234,12 @@ class ThermalReceiptPrinter {
     _printer.printCustom(docNo.toUpperCase(), 3, 1);
     _printer.printCustom(_divider, 0, 1);
 
+    // QR Code for scanning
+    _printer.printNewLine();
+    await _printer.printQRcode(docNo.toUpperCase(), 200, 200, 1);
+    _printer.printNewLine();
+    _printer.printCustom(_divider, 0, 1);
+
     // Parcel info
     _printer.printCustom(
       _labelValue(
@@ -370,10 +376,18 @@ class ThermalReceiptPrinter {
         (printedBy != null && printedBy.isNotEmpty)) {
       _printer.printCustom('-' * _lineWidthChars, 0, 1);
       if (location != null && location.isNotEmpty) {
-        _printer.printCustom(_labelValue('LOCATION:', location.toUpperCase()), 0, 0);
+        _printer.printCustom(
+          _labelValue('LOCATION:', location.toUpperCase()),
+          0,
+          0,
+        );
       }
       if (printedBy != null && printedBy.isNotEmpty) {
-        _printer.printCustom(_labelValue('PRINTED BY:', printedBy.toUpperCase()), 0, 0);
+        _printer.printCustom(
+          _labelValue('PRINTED BY:', printedBy.toUpperCase()),
+          0,
+          0,
+        );
       }
     }
 
@@ -450,9 +464,10 @@ class ThermalReceiptPrinter {
         final label = columns[i].toUpperCase();
         final value = row[i];
         final paddedLabel = '$label: '.padRight(labelWidth);
-        final paddedValue = value.length > valueWidth
-            ? value.substring(0, valueWidth)
-            : value.padLeft(valueWidth);
+        final paddedValue =
+            value.length > valueWidth
+                ? value.substring(0, valueWidth)
+                : value.padLeft(valueWidth);
         _printer.printCustom('$paddedLabel$paddedValue', 0, 0);
       }
       _printer.printCustom('-' * _lineWidthChars, 0, 1);

@@ -32,6 +32,7 @@ class Parcel {
   DateTime? Date_Delivered;
   DateTime? Out_For_Delivery_Time;
   DateTime? Date_Returned;
+  DateTime? Date_Created;
   DateTime? Time_Created;
   DateTime? Time_Sent;
   DateTime? Time_Collected;
@@ -46,6 +47,8 @@ class Parcel {
   String? Received_By_ID;
   String? Received_By_Phone;
   String? Receiver_Code;
+  String? App_Version;
+  double? Parcel_Value;
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -72,6 +75,7 @@ class Parcel {
     this.Date_Delivered,
     this.Out_For_Delivery_Time,
     this.Date_Returned,
+    this.Date_Created,
     this.Time_Created,
     this.Time_Sent,
     this.Time_Collected,
@@ -86,6 +90,8 @@ class Parcel {
     this.Received_By_ID,
     this.Received_By_Phone,
     this.Receiver_Code,
+    this.App_Version,
+    this.Parcel_Value,
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -114,6 +120,7 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Date_Created': Date_Created?.toIso8601String(),
       'Time_Created': Time_Created?.toIso8601String(),
       'Time_Sent': Time_Sent?.toIso8601String(),
       'Time_Collected': Time_Collected?.toIso8601String(),
@@ -128,6 +135,8 @@ class Parcel {
       'Received_By_ID': Received_By_ID,
       'Received_By_Phone': Received_By_Phone,
       'Receiver_Code': Receiver_Code,
+      'App_Version': App_Version,
+      'Parcel_Value': Parcel_Value,
       'Parcel_Details': parcelDetails.map((d) => d.toJson()).toList(),
     };
   }
@@ -189,6 +198,9 @@ class Parcel {
       Date_Returned: _parseDate(
         read(['Date_Returned', 'date_Returned', 'dateReturned']),
       ),
+      Date_Created: _parseDate(
+        read(['Date_Created', 'date_Created', 'dateCreated']),
+      ),
       Time_Created: _parseDate(
         read(['Time_Created', 'time_Created', 'timeCreated']),
       ),
@@ -220,6 +232,19 @@ class Parcel {
               )
               .toList() ??
           <Parcel_Details>[],
+      Created_By: read(['Created_By', 'created_By', 'createdBy']) as String?,
+      Received_By_ID:
+          read(['Received_By_ID', 'received_By_ID', 'receivedById']) as String?,
+      Received_By_Phone:
+          read(['Received_By_Phone', 'received_By_Phone', 'receivedByPhone'])
+              as String?,
+      Receiver_Code:
+          read(['Receiver_Code', 'receiver_Code', 'receiverCode']) as String?,
+      App_Version:
+          read(['App_Version', 'app_Version', 'appVersion']) as String?,
+      Parcel_Value:
+          (read(['Parcel_Value', 'parcel_Value', 'parcelValue']) as num?)
+              ?.toDouble(),
     );
   }
 
@@ -258,6 +283,7 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Date_Created': Date_Created?.toIso8601String(),
       'Time_Created': Time_Created?.toIso8601String(),
       'Time_Sent': Time_Sent?.toIso8601String(),
       'Time_Collected': Time_Collected?.toIso8601String(),
@@ -272,6 +298,8 @@ class Parcel {
       'Received_By_ID': Received_By_ID,
       'Received_By_Phone': Received_By_Phone,
       'Receiver_Code': Receiver_Code,
+      'App_Version': App_Version,
+      'Parcel_Value': Parcel_Value,
     };
   }
 
@@ -300,6 +328,7 @@ class Parcel {
       Date_Delivered: _parseDate(map['Date_Delivered']),
       Out_For_Delivery_Time: _parseDate(map['Out_For_Delivery_Time']),
       Date_Returned: _parseDate(map['Date_Returned']),
+      Date_Created: _parseDate(map['Date_Created']),
       Time_Created: _parseDate(map['Time_Created']),
       Time_Sent: _parseDate(map['Time_Sent']),
       Time_Collected: _parseDate(map['Time_Collected']),
@@ -314,6 +343,8 @@ class Parcel {
       Received_By_ID: map['Received_By_ID'] as String?,
       Received_By_Phone: map['Received_By_Phone'] as String?,
       Receiver_Code: map['Receiver_Code'] as String?,
+      App_Version: map['App_Version'] as String?,
+      Parcel_Value: (map['Parcel_Value'] as num?)?.toDouble(),
     );
   }
 
@@ -362,6 +393,7 @@ class Parcel {
       'Date_Delivered': Date_Delivered?.toIso8601String(),
       'Out_For_Delivery_Time': Out_For_Delivery_Time?.toIso8601String(),
       'Date_Returned': Date_Returned?.toIso8601String(),
+      'Date_Created': Date_Created?.toIso8601String(),
       'Time_Created': Time_Created?.toIso8601String(),
       'Time_Sent': Time_Sent?.toIso8601String(),
       'Time_Collected': Time_Collected?.toIso8601String(),
@@ -374,6 +406,8 @@ class Parcel {
       'Received_By_ID': Received_By_ID,
       'Received_By_Phone': Received_By_Phone,
       'Receiver_Code': Receiver_Code,
+      'App_Version': App_Version,
+      'Parcel_Value': Parcel_Value,
     };
   }
 
@@ -382,7 +416,7 @@ class Parcel {
       case PaymentMethod.cash:
         return 'Cash';
       case PaymentMethod.mpesa:
-        return 'M-Pesa';
+        return 'MPesa';
       case PaymentMethod.pending:
         return 'Pending';
       default:
@@ -414,6 +448,7 @@ class Parcel {
     DateTime? Date_Delivered,
     DateTime? Out_For_Delivery_Time,
     DateTime? Date_Returned,
+    DateTime? Date_Created,
     DateTime? Time_Created,
     DateTime? Time_Sent,
     DateTime? Time_Collected,
@@ -428,6 +463,8 @@ class Parcel {
     String? Received_By_ID,
     String? Received_By_Phone,
     String? Receiver_Code,
+    String? App_Version,
+    double? Parcel_Value,
     List<Parcel_Details>? parcelDetails,
   }) {
     return Parcel(
@@ -469,13 +506,19 @@ class Parcel {
       Received_By_ID: Received_By_ID ?? this.Received_By_ID,
       Received_By_Phone: Received_By_Phone ?? this.Received_By_Phone,
       Receiver_Code: Receiver_Code ?? this.Receiver_Code,
+      App_Version: App_Version ?? this.App_Version,
+      Parcel_Value: Parcel_Value ?? this.Parcel_Value,
       parcelDetails: parcelDetails ?? this.parcelDetails,
     );
   }
 
   static DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-    return DateTime.tryParse(value.toString());
+    final parsed = DateTime.tryParse(value.toString());
+    if (parsed == null) return null;
+    // NAV sends 0001-01-01 as its null date — treat as null
+    if (parsed.year <= 1) return null;
+    return parsed;
   }
 
   static ParcelStatus _parseStatus(dynamic value) {
@@ -500,11 +543,13 @@ class Parcel {
         return ParcelStatus.pending;
       case 'intransit':
       case 'in_transist':
+      case 'in transist':
       case 'in_transit':
       case 'outfordelivery':
       case '1':
         return ParcelStatus.inTransit;
       case 'waiting_collection':
+      case 'waiting collection':
       case 'waitingcollection':
       case 'received':
       case 'delivered':

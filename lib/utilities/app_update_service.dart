@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -114,23 +113,38 @@ class AppUpdateService extends GetxService {
       lastCheckMessage.value = 'Starting download...';
 
       final dir = await getTemporaryDirectory();
-      final apkDir = Directory('${dir.path}');
+      final apkDir = Directory(dir.path);
       if (!await apkDir.exists()) await apkDir.create(recursive: true);
 
-      final filePath = '${apkDir.path}/parcel_v${version.versionCode}.apk';
-      final file = File(filePath);
+      final apkPath = '${apkDir.path}/parcel_v${version.versionCode}.apk';
+      final file = File(apkPath);
 
+      // Check for partial file to resume
+      var resumeAt = 0;
       if (await file.exists()) {
         final stat = await file.stat();
-        if (DateTime.now().difference(stat.modified).inHours < 1) {
-          _downloadedApkPath = filePath;
-          downloadProgress.value = 1.0;
-          updateReady.value = true;
-          isDownloading.value = false;
-          lastCheckMessage.value = 'Download complete';
-          return;
+        // Verify the partial file starts with APK header
+        if (stat.size >= 4) {
+          final raf = await file.open(mode: FileMode.read);
+          final header = await raf.read(4);
+          await raf.close();
+          if (header[0] == 0x50 &&
+              header[1] == 0x4B &&
+              header[2] == 0x03 &&
+              header[3] == 0x04) {
+            resumeAt = stat.size;
+            final mb = resumeAt / (1024 * 1024);
+            lastCheckMessage.value =
+                'Resuming from ${mb.toStringAsFixed(1)} MB...';
+            downloadProgress.value = 0.0; // will update relative to remaining
+          } else {
+            // Corrupted — delete and start fresh
+            await file.delete();
+          }
+        } else {
+          // Too small — delete and start fresh
+          await file.delete();
         }
-        await file.delete();
       }
 
       final client =
@@ -138,26 +152,47 @@ class AppUpdateService extends GetxService {
       client.connectionTimeout = const Duration(seconds: 30);
       try {
         final req = await client.getUrl(Uri.parse(version.downloadUrl));
+        if (resumeAt > 0) {
+          req.headers.set(HttpHeaders.rangeHeader, 'bytes=$resumeAt-');
+        }
         final resp = await req.close().timeout(const Duration(minutes: 5));
 
-        if (resp.statusCode != 200) {
+        final isResume = resp.statusCode == 206;
+        if (resp.statusCode != 200 && resp.statusCode != 206) {
           lastCheckMessage.value = 'Download failed: HTTP ${resp.statusCode}';
           downloadProgress.value = -1;
+          // Don't delete partial — keep it for retry
           return;
         }
 
-        final total = resp.contentLength;
-        var received = 0;
-        final sink = file.openWrite();
+        // If server responded 200 instead of 206, it ignored Range — restart
+        if (resumeAt > 0 && !isResume) {
+          await file.delete();
+          resumeAt = 0;
+          lastCheckMessage.value =
+              'Server does not support resume. Restarting...';
+        }
+
+        final totalFromServer = resp.contentLength;
+        final effectiveTotal =
+            isResume
+                ? resumeAt + (totalFromServer > 0 ? totalFromServer : 0)
+                : totalFromServer;
+        var received = resumeAt;
+
+        // Open in append mode if resuming, otherwise overwrite
+        final sink = file.openWrite(
+          mode: resumeAt > 0 ? FileMode.append : FileMode.write,
+        );
         final stopwatch = Stopwatch()..start();
 
         await for (final chunk in resp) {
           sink.add(chunk);
           received += chunk.length;
 
-          if (total > 0) {
-            downloadProgress.value = received / total;
-            final pct = (received * 100 / total).toStringAsFixed(0);
+          if (effectiveTotal > 0) {
+            downloadProgress.value = received / effectiveTotal;
+            final pct = (received * 100 / effectiveTotal).toStringAsFixed(0);
             final mb = received / (1024 * 1024);
             lastCheckMessage.value =
                 'Downloading... $pct% (${mb.toStringAsFixed(1)} MB)';
@@ -174,11 +209,45 @@ class AppUpdateService extends GetxService {
         await sink.flush();
         await sink.close();
 
-        _downloadedApkPath = filePath;
+        // ---- VERIFY the downloaded file ----
+        final fileStat = await file.stat();
+        final gotSize = fileStat.size;
+
+        // Size check
+        if (effectiveTotal > 0 && gotSize != effectiveTotal) {
+          lastCheckMessage.value =
+              'Download interrupted: got $gotSize of $effectiveTotal bytes (will resume)';
+          downloadProgress.value = -1;
+          // Keep the partial file for resuming
+          return;
+        }
+
+        // APK magic bytes check
+        if (gotSize < 4) {
+          lastCheckMessage.value = 'Downloaded file too small';
+          downloadProgress.value = -1;
+          await file.delete();
+          return;
+        }
+        final raf = await file.open(mode: FileMode.read);
+        final header = await raf.read(4);
+        await raf.close();
+        if (header[0] != 0x50 ||
+            header[1] != 0x4B ||
+            header[2] != 0x03 ||
+            header[3] != 0x04) {
+          lastCheckMessage.value = 'Downloaded file is not a valid APK';
+          downloadProgress.value = -1;
+          await file.delete();
+          return;
+        }
+
+        // ---- VERIFIED ----
+        _downloadedApkPath = apkPath;
         downloadProgress.value = 1.0;
         updateReady.value = true;
         lastCheckMessage.value =
-            'Download complete (${(received / (1024 * 1024)).toStringAsFixed(1)} MB)';
+            'Download complete (${(gotSize / (1024 * 1024)).toStringAsFixed(1)} MB)';
       } finally {
         client.close();
       }
@@ -188,6 +257,7 @@ class AppUpdateService extends GetxService {
           'Download error: ${msg.length > 80 ? msg.substring(0, 80) : msg}';
       downloadProgress.value = -1;
       _downloadedApkPath = null;
+      // Keep partial file for resume — don't delete on network errors
     } finally {
       isDownloading.value = false;
     }

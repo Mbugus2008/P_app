@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 19,
+      version: 22,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -64,6 +64,7 @@ class DatabaseHelper {
         Date_Delivered TEXT,
         Out_For_Delivery_Time TEXT,
         Date_Returned TEXT,
+        Date_Created TEXT,
         Time_Created TEXT,
         Time_Sent TEXT,
         Time_Collected TEXT,
@@ -75,6 +76,8 @@ class DatabaseHelper {
         Received_By_ID TEXT,
         Received_By_Phone TEXT,
         Receiver_Code TEXT,
+        App_Version TEXT,
+        Parcel_Value REAL,
         Payment_Method TEXT,
         Mpesa_Code TEXT,
         Is_Synced INTEGER DEFAULT 0,
@@ -356,6 +359,28 @@ class DatabaseHelper {
         );
       } catch (_) {}
     }
+
+    if (oldVersion < 20) {
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Date_Created TEXT',
+        );
+      } catch (_) {}
+    }
+
+    if (oldVersion < 21) {
+      try {
+        await db.execute('ALTER TABLE $_tableName ADD COLUMN App_Version TEXT');
+      } catch (_) {}
+    }
+
+    if (oldVersion < 22) {
+      try {
+        await db.execute(
+          'ALTER TABLE $_tableName ADD COLUMN Parcel_Value REAL',
+        );
+      } catch (_) {}
+    }
   }
 
   // Future<void> _seedSampleParcels(Database db) async {
@@ -481,6 +506,32 @@ class DatabaseHelper {
     return List.generate(maps.length, (i) {
       return Parcel.fromDbMap(maps[i]);
     });
+  }
+
+  /// Deletes synced parcels not present in the pulled set (deleted on BC).
+  Future<int> deleteOrphanParcels(Set<String> pulledDocNos) async {
+    if (pulledDocNos.isEmpty) return 0;
+    final db = await database;
+    // Delete synced parcels whose Document_No is NOT in pulledDocNos
+    final all = await db.query(
+      _tableName,
+      columns: ['Document_No'],
+      where: 'Is_Synced = 1',
+    );
+    final toDelete = <String>[];
+    for (final row in all) {
+      final doc = (row['Document_No'] ?? '').toString().trim().toUpperCase();
+      if (doc.isNotEmpty && !pulledDocNos.contains(doc)) {
+        toDelete.add(doc);
+      }
+    }
+    if (toDelete.isEmpty) return 0;
+    final placeholders = List.filled(toDelete.length, '?').join(', ');
+    return await db.delete(
+      _tableName,
+      where: "Document_No IN ($placeholders)",
+      whereArgs: toDelete,
+    );
   }
 
   Future<int> getNextDocumentSerial(String prefix) async {
@@ -862,7 +913,28 @@ class DatabaseHelper {
     final rows = await db.query(
       _batchesTableName,
       where:
-          "Status = 'inTransit' AND (To_Location COLLATE NOCASE IN ($placeholders) OR Destination COLLATE NOCASE IN ($placeholders))",
+          "Status IN ('inTransit','In Transist','Intransit','In_Transit','In_Transist') AND (To_Location COLLATE NOCASE IN ($placeholders) OR Destination COLLATE NOCASE IN ($placeholders))",
+      whereArgs: [...args, ...args],
+      orderBy: 'Created_At DESC',
+    );
+    return rows.map((row) => Batches.fromDbMap(row)).toList();
+  }
+
+  /// Batches dispatched FROM the user's location (outgoing).
+  Future<List<Batches>> getDispatchedBatchesForLocation(
+    List<String> locations,
+  ) async {
+    final candidates =
+        locations.map((l) => l.trim()).where((l) => l.isNotEmpty).toSet();
+    if (candidates.isEmpty) return <Batches>[];
+
+    final db = await database;
+    final placeholders = List.filled(candidates.length, '?').join(', ');
+    final args = candidates.toList();
+    final rows = await db.query(
+      _batchesTableName,
+      where:
+          "Status IN ('inTransit','In Transist','Intransit','In_Transit','In_Transist') AND (From_Location COLLATE NOCASE IN ($placeholders) OR Source COLLATE NOCASE IN ($placeholders))",
       whereArgs: [...args, ...args],
       orderBy: 'Created_At DESC',
     );
@@ -881,7 +953,7 @@ class DatabaseHelper {
     final rows = await db.query(
       _tableName,
       where:
-          "Status = 'received' AND To_Location COLLATE NOCASE IN ($placeholders)",
+          "Status IN ('received','Waiting Collection','Waiting_Collection','waiting_collection','Delivered','Received','delivered') AND To_Location COLLATE NOCASE IN ($placeholders)",
       whereArgs: candidates.toList(),
       orderBy: 'Date_Delivered DESC',
     );
@@ -906,6 +978,7 @@ class DatabaseHelper {
   }
 
   String _deviceWhereClause(String deviceId) {
+    if (deviceId.isEmpty) return '1=1';
     return "Device_ID = '$deviceId'";
   }
 
@@ -1069,6 +1142,72 @@ class DatabaseHelper {
     ''',
       [agentCode],
     );
+  }
+
+  /// My Parcels: all parcels created by me OR sent to my location
+  Future<Map<String, dynamic>> getMyCollectedParcels({
+    DateTime? from,
+    DateTime? to,
+    required String agentCode,
+    required List<String> locations,
+  }) async {
+    final db = await database;
+    final dateWhere = _dateWhereClause('Date_sent', from: from, to: to);
+    final candidates = locations.where((l) => l.trim().isNotEmpty).toSet();
+    if (candidates.isEmpty)
+      return {'detail': [], 'myCreated': [], 'fromOthers': []};
+    final placeholders = candidates.map((_) => '?').join(', ');
+    final locationArgs = candidates.toList();
+
+    // All parcels from my location OR collected by me
+    final detail = await db.rawQuery(
+      '''
+      SELECT From_Location as "from",
+             Document_No as docNo,
+             Sender_Name as sender,
+             Receiver_Name as receiver,
+             Amount_Paid as amount,
+             COALESCE(NULLIF(Payment_Method, ''), 'Pending') as method,
+             Status as status,
+             CASE WHEN From_Location COLLATE NOCASE IN ($placeholders) THEN 'Mine' ELSE 'Incoming' END as origin
+      FROM $_tableName
+      WHERE $dateWhere
+        AND (From_Location COLLATE NOCASE IN ($placeholders) OR Payment_Received_By = ?)
+      ORDER BY Date_sent DESC
+    ''',
+      [...locationArgs, ...locationArgs, agentCode],
+    );
+
+    // Summary 1: Cash and M-Pesa for parcels from my location
+    final myCreated = await db.rawQuery('''
+      SELECT 
+        COALESCE(NULLIF(Payment_Method, ''), 'Pending') as method,
+        COUNT(*) as count,
+        COALESCE(SUM(Amount_Paid), 0) as total
+      FROM $_tableName
+      WHERE $dateWhere AND From_Location COLLATE NOCASE IN ($placeholders)
+      GROUP BY method
+      ORDER BY count DESC
+    ''', locationArgs);
+
+    // Summary 2: Cash and M-Pesa collected from other locations
+    final fromOthers = await db.rawQuery(
+      '''
+      SELECT 
+        COALESCE(NULLIF(Payment_Method, ''), 'Pending') as method,
+        COUNT(*) as count,
+        COALESCE(SUM(Amount_Paid), 0) as total
+      FROM $_tableName
+      WHERE $dateWhere
+        AND Payment_Received_By = ?
+        AND From_Location COLLATE NOCASE NOT IN ($placeholders)
+      GROUP BY method
+      ORDER BY count DESC
+    ''',
+      [agentCode, ...locationArgs],
+    );
+
+    return {'detail': detail, 'myCreated': myCreated, 'fromOthers': fromOthers};
   }
 
   /// Batch Performance: batch stats grouped by status

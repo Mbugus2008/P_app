@@ -29,6 +29,7 @@ enum ReportType {
   batchPerformance,
   activityLog,
   myCollections,
+  myCollectedParcels,
 }
 
 extension ReportTypeLabel on ReportType {
@@ -54,6 +55,8 @@ extension ReportTypeLabel on ReportType {
         return 'Activity Log';
       case ReportType.myCollections:
         return 'My Collections';
+      case ReportType.myCollectedParcels:
+        return 'My Parcels';
     }
   }
 
@@ -79,6 +82,8 @@ extension ReportTypeLabel on ReportType {
         return Icons.history;
       case ReportType.myCollections:
         return Icons.account_balance_wallet;
+      case ReportType.myCollectedParcels:
+        return Icons.receipt_long;
     }
   }
 
@@ -104,6 +109,8 @@ extension ReportTypeLabel on ReportType {
         return const Color(0xFF757575);
       case ReportType.myCollections:
         return const Color(0xFFC62828);
+      case ReportType.myCollectedParcels:
+        return const Color(0xFF1565C0);
     }
   }
 }
@@ -131,8 +138,11 @@ class _ReportsPageState extends State<ReportsPage> {
   bool _isExporting = false;
   bool _isBluetoothPrinting = false;
   List<Map<String, dynamic>> _results = [];
+  List<Map<String, dynamic>> _collectedDetail = [];
+  List<Map<String, dynamic>> _collectedSummary = [];
+  List<Map<String, dynamic>> _collectedFromOthers = [];
   String? _error;
-  String _deviceId = '';
+  String _deviceId = ''; // empty = show all parcels regardless of device
 
   @override
   void initState() {
@@ -141,11 +151,16 @@ class _ReportsPageState extends State<ReportsPage> {
     final today = DateTime.now();
     _dateFrom = DateTime(today.year, today.month, today.day);
     _dateTo = DateTime(today.year, today.month, today.day, 23, 59, 59);
+    // Collected Parcels shows all-time by default
+    if (_selectedReport == ReportType.myCollectedParcels) {
+      _dateFrom = null;
+      _dateTo = null;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _initDeviceAndLoad());
   }
 
   Future<void> _initDeviceAndLoad() async {
-    _deviceId = await DeviceIdHelper.instance.getDeviceId();
+    // Reports show all parcels regardless of creating device
     _loadReport();
   }
 
@@ -157,6 +172,9 @@ class _ReportsPageState extends State<ReportsPage> {
 
     try {
       List<Map<String, dynamic>> results;
+      _collectedDetail = [];
+      _collectedSummary = [];
+      _collectedFromOthers = [];
       switch (_selectedReport) {
         case ReportType.statusBreakdown:
           results = await _dbHelper.getStatusBreakdown(
@@ -221,6 +239,31 @@ class _ReportsPageState extends State<ReportsPage> {
             deviceId: _deviceId,
             agentCode: agentCode,
           );
+        case ReportType.myCollectedParcels:
+          final controller = Get.find<ParcelController>();
+          final agentCode = controller.loggedInUser?.agentCode ?? '';
+          final locations =
+              <String>[
+                controller.currentLocation,
+                controller.currentLocationCode,
+                controller.currentLocationName,
+              ].where((l) => l.trim().isNotEmpty).toList();
+          final data = await _dbHelper.getMyCollectedParcels(
+            from: _dateFrom,
+            to: _dateTo,
+            agentCode: agentCode,
+            locations: locations,
+          );
+          _collectedDetail = List<Map<String, dynamic>>.from(
+            data['detail'] as List,
+          );
+          _collectedSummary = List<Map<String, dynamic>>.from(
+            data['myCreated'] as List,
+          );
+          _collectedFromOthers = List<Map<String, dynamic>>.from(
+            data['fromOthers'] as List,
+          );
+          results = _collectedDetail; // for export compatibility
       }
 
       if (!mounted) return;
@@ -408,6 +451,16 @@ class _ReportsPageState extends State<ReportsPage> {
         ];
       case ReportType.myCollections:
         return ['Method', 'Count', 'Amount (KES)', 'Paid', 'Unpaid'];
+      case ReportType.myCollectedParcels:
+        return [
+          'From',
+          'Doc No',
+          'Sender',
+          'Receiver',
+          'Amount',
+          'Payment',
+          'Status',
+        ];
     }
   }
 
@@ -522,6 +575,20 @@ class _ReportsPageState extends State<ReportsPage> {
                 _formatCurrency(r['total_amount']),
                 '${r['paid_count'] ?? 0}',
                 '${r['unpaid_count'] ?? 0}',
+              ],
+            )
+            .toList();
+      case ReportType.myCollectedParcels:
+        return _collectedDetail
+            .map(
+              (r) => [
+                r['from']?.toString() ?? '-',
+                r['docNo']?.toString() ?? '-',
+                r['sender']?.toString() ?? '-',
+                r['receiver']?.toString() ?? '-',
+                _formatCurrency(r['amount']),
+                r['method']?.toString() ?? '-',
+                '${r['status']?.toString() ?? '-'} (${r['origin'] ?? '-'})',
               ],
             )
             .toList();
@@ -641,6 +708,8 @@ class _ReportsPageState extends State<ReportsPage> {
                 ),
               if (_selectedReport != ReportType.activityLog)
                 pw.SizedBox(height: 16),
+              if (_selectedReport == ReportType.myCollectedParcels)
+                _buildPdfSummarySection(context),
               _buildPdfTable(columns, rows),
             ],
         footer:
@@ -689,6 +758,67 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
+  pw.Widget _buildPdfSummarySection(pw.Context context) {
+    final items = <pw.Widget>[];
+    items.add(
+      pw.Text(
+        'Summary',
+        style: pw.TextStyle(
+          fontSize: 13,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColor.fromHex('#1565C0'),
+        ),
+      ),
+    );
+    items.add(pw.SizedBox(height: 6));
+
+    void addGroup(String title, List<Map<String, dynamic>> data) {
+      items.add(
+        pw.Text(
+          title,
+          style: pw.TextStyle(
+            fontSize: 11,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColor.fromHex('#666666'),
+          ),
+        ),
+      );
+      if (data.isEmpty) {
+        items.add(
+          pw.Text(
+            'No data',
+            style: pw.TextStyle(
+              fontSize: 10,
+              color: PdfColor.fromHex('#999999'),
+            ),
+          ),
+        );
+      } else {
+        for (final s in data) {
+          final method = s['method']?.toString() ?? 'Pending';
+          final count = s['count']?.toString() ?? '0';
+          final total = _formatCurrency(s['total']);
+          items.add(
+            pw.Text(
+              '  $method — $count parcels — KES $total',
+              style: const pw.TextStyle(fontSize: 10),
+            ),
+          );
+        }
+      }
+      items.add(pw.SizedBox(height: 4));
+    }
+
+    addGroup('My Parcels', _collectedSummary);
+    addGroup('Received Parcels', _collectedFromOthers);
+    items.add(pw.SizedBox(height: 8));
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: items,
+    );
+  }
+
   pw.Widget _buildPdfTable(List<String> columns, List<List<String>> rows) {
     return pw.TableHelper.fromTextArray(
       headerStyle: pw.TextStyle(
@@ -720,6 +850,21 @@ class _ReportsPageState extends State<ReportsPage> {
       final rows = _getTableRows();
 
       final buf = StringBuffer();
+      if (_selectedReport == ReportType.myCollectedParcels) {
+        buf.writeln('Summary');
+        void addCsvGroup(String title, List<Map<String, dynamic>> data) {
+          for (final s in data) {
+            buf.writeln(
+              '$title,${s['method']},${s['count']} parcels,KES ${_formatCurrency(s['total'])}',
+            );
+          }
+          if (data.isEmpty) buf.writeln('$title,No data');
+        }
+
+        addCsvGroup('My Parcels', _collectedSummary);
+        addCsvGroup('Received Parcels', _collectedFromOthers);
+        buf.writeln('');
+      }
       buf.writeln(columns.map(_csvEscape).join(','));
       for (final row in rows) {
         buf.writeln(row.map(_csvEscape).join(','));
@@ -979,6 +1124,8 @@ class _ReportsPageState extends State<ReportsPage> {
                 children: [
                   if (_selectedReport != ReportType.activityLog)
                     _buildSummaryCards(totalCount, totalAmount),
+                  if (_selectedReport == ReportType.myCollectedParcels)
+                    _buildCollectedSummary(),
                   Expanded(child: _buildResultsTable()),
                 ],
               ),
@@ -1059,6 +1206,103 @@ class _ReportsPageState extends State<ReportsPage> {
               color: AppColors.success,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollectedSummary() {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(
+        children: [
+          _summarySection(theme, 'My Parcels', _collectedSummary),
+          if (_collectedFromOthers.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _summarySection(theme, 'Received Parcels', _collectedFromOthers),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _summarySection(
+    ThemeData theme,
+    String title,
+    List<Map<String, dynamic>> data,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.summarize, size: 18, color: AppColors.secondary),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (data.isEmpty)
+            Text(
+              'No data',
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+            )
+          else
+            ...data.map((s) {
+              final method = (s['method']?.toString() ?? 'Pending');
+              final count = s['count'] as int? ?? 0;
+              final total = (s['total'] as num?)?.toDouble() ?? 0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            method == 'M-Pesa'
+                                ? Colors.green.shade50
+                                : Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        method,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color:
+                              method == 'M-Pesa' ? Colors.green : Colors.orange,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text('$count parcels', style: theme.textTheme.bodySmall),
+                    const SizedBox(width: 12),
+                    Text(
+                      'KES ${total.toStringAsFixed(0)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );
