@@ -49,6 +49,8 @@ class Parcel {
   String? Receiver_Code;
   String? App_Version;
   double? Parcel_Value;
+  DateTime? Payment_Date;
+  DateTime? Payment_Time;
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -92,6 +94,8 @@ class Parcel {
     this.Receiver_Code,
     this.App_Version,
     this.Parcel_Value,
+    this.Payment_Date,
+    this.Payment_Time,
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -137,6 +141,8 @@ class Parcel {
       'Receiver_Code': Receiver_Code,
       'App_Version': App_Version,
       'Parcel_Value': Parcel_Value,
+      'Payment_Date': Payment_Date?.toIso8601String(),
+      'Payment_Time': Payment_Time?.toIso8601String(),
       'Parcel_Details': parcelDetails.map((d) => d.toJson()).toList(),
     };
   }
@@ -245,6 +251,12 @@ class Parcel {
       Parcel_Value:
           (read(['Parcel_Value', 'parcel_Value', 'parcelValue']) as num?)
               ?.toDouble(),
+      Payment_Date: _parseDate(
+        read(['Payment_Date', 'payment_Date', 'paymentDate']),
+      ),
+      Payment_Time: _parseDate(
+        read(['Payment_Time', 'payment_Time', 'paymentTime']),
+      ),
     );
   }
 
@@ -300,6 +312,8 @@ class Parcel {
       'Receiver_Code': Receiver_Code,
       'App_Version': App_Version,
       'Parcel_Value': Parcel_Value,
+      'Payment_Date': Payment_Date?.toIso8601String(),
+      'Payment_Time': Payment_Time?.toIso8601String(),
     };
   }
 
@@ -345,6 +359,8 @@ class Parcel {
       Receiver_Code: map['Receiver_Code'] as String?,
       App_Version: map['App_Version'] as String?,
       Parcel_Value: (map['Parcel_Value'] as num?)?.toDouble(),
+      Payment_Date: _parseDate(map['Payment_Date']),
+      Payment_Time: _parseDate(map['Payment_Time']),
     );
   }
 
@@ -408,6 +424,8 @@ class Parcel {
       'Receiver_Code': Receiver_Code,
       'App_Version': App_Version,
       'Parcel_Value': Parcel_Value,
+      'Payment_Date': Payment_Date?.toIso8601String(),
+      'Payment_Time': Payment_Time?.toIso8601String(),
     };
   }
 
@@ -465,6 +483,8 @@ class Parcel {
     String? Receiver_Code,
     String? App_Version,
     double? Parcel_Value,
+    DateTime? Payment_Date,
+    DateTime? Payment_Time,
     List<Parcel_Details>? parcelDetails,
   }) {
     return Parcel(
@@ -508,6 +528,8 @@ class Parcel {
       Receiver_Code: Receiver_Code ?? this.Receiver_Code,
       App_Version: App_Version ?? this.App_Version,
       Parcel_Value: Parcel_Value ?? this.Parcel_Value,
+      Payment_Date: Payment_Date ?? this.Payment_Date,
+      Payment_Time: Payment_Time ?? this.Payment_Time,
       parcelDetails: parcelDetails ?? this.parcelDetails,
     );
   }

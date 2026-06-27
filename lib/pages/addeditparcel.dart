@@ -387,6 +387,11 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
           method != PaymentMethod.pending
               ? controller.loggedInUser?.agentCode
               : null;
+      // Pay Later → receiver will pay at destination
+      if (method == PaymentMethod.pending) {
+        controller.parcel!.Who_to_Pay = WhoToPay.Receiver;
+        controller.paymentResponsibility = WhoToPay.Receiver;
+      }
     }
 
     // Persist payment for both cash and M-Pesa before showing receipt flow.

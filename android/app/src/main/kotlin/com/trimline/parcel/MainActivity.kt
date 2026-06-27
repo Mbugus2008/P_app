@@ -48,16 +48,32 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** Standard install — opens system package installer */
+    /** Install APK using the most reliable method for the device */
     private fun installApk(filePath: String) {
         val file = File(filePath)
+        if (!file.exists()) return
+
         val uri: Uri = FileProvider.getUriForFile(
             this, "${APPLICATION_ID}.fileprovider", file
         )
+
+        // Grant read permission to the system package installer
+        try {
+            grantUriPermission(
+                "com.android.packageinstaller", uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: Exception) {}
+
+        // Use ACTION_VIEW which is the most widely supported
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
-            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_ACTIVITY_NEW_TASK
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // On some devices, explicitly setting the package helps
+            try {
+                setPackage("com.android.packageinstaller")
+            } catch (_: Exception) {}
         }
         startActivity(intent)
     }
@@ -66,6 +82,10 @@ class MainActivity : FlutterActivity() {
     private fun installApkSilent(filePath: String) {
         try {
             val file = File(filePath)
+            if (!file.exists()) {
+                installApk(filePath)
+                return
+            }
             val installer = packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL
@@ -73,15 +93,14 @@ class MainActivity : FlutterActivity() {
             val sessionId = installer.createSession(params)
             val session = installer.openSession(sessionId)
 
-            // Copy APK to session
             FileInputStream(file).use { input ->
                 session.openWrite("package", 0, file.length()).use { out: OutputStream ->
                     input.copyTo(out)
                 }
             }
 
-            // Commit — triggers system install prompt
-            val intent = Intent(Intent.ACTION_VIEW).apply {
+            // Commit the session — system will show install prompt automatically
+            val intent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             val pendingIntent = PendingIntent.getActivity(

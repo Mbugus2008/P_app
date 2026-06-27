@@ -34,7 +34,7 @@ class DatabaseHelper {
     final path = join(documentsDirectory.path, 'parcels_database.db');
     return await openDatabase(
       path,
-      version: 22,
+      version: 24,
       onCreate: _createDb,
       onUpgrade: _onUpgrade,
     );
@@ -78,6 +78,8 @@ class DatabaseHelper {
         Receiver_Code TEXT,
         App_Version TEXT,
         Parcel_Value REAL,
+        Payment_Date TEXT,
+        Payment_Time TEXT,
         Payment_Method TEXT,
         Mpesa_Code TEXT,
         Is_Synced INTEGER DEFAULT 0,
@@ -98,7 +100,8 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE $_locationsTableName (
         Code TEXT PRIMARY KEY,
-        Name TEXT
+        Name TEXT,
+        Phone_No TEXT
       )
     ''');
     await db.execute('''
@@ -381,6 +384,14 @@ class DatabaseHelper {
         );
       } catch (_) {}
     }
+
+    if (oldVersion < 24) {
+      try {
+        await db.execute(
+          'ALTER TABLE $_locationsTableName ADD COLUMN Phone_No TEXT',
+        );
+      } catch (_) {}
+    }
   }
 
   // Future<void> _seedSampleParcels(Database db) async {
@@ -508,10 +519,32 @@ class DatabaseHelper {
     });
   }
 
+  /// Returns all parcel Document_Nos referenced in any batch.
+  Future<Set<String>> getAllBatchParcelDocNos() async {
+    final db = await database;
+    final rows = await db.query(
+      _batchesTableName,
+      columns: ['Parcel_Document_Nos'],
+    );
+    final docNos = <String>{};
+    for (final row in rows) {
+      final raw = (row['Parcel_Document_Nos'] ?? '').toString();
+      if (raw.isEmpty) continue;
+      // Batch doc nos are stored as comma-separated or JSON list
+      for (final doc in raw.split(',')) {
+        final trimmed = doc.trim().toUpperCase();
+        if (trimmed.isNotEmpty) docNos.add(trimmed);
+      }
+    }
+    return docNos;
+  }
+
   /// Deletes synced parcels not present in the pulled set (deleted on BC).
   Future<int> deleteOrphanParcels(Set<String> pulledDocNos) async {
     if (pulledDocNos.isEmpty) return 0;
     final db = await database;
+    // Protect parcels referenced in any batch — never delete those
+    final batchDocs = await getAllBatchParcelDocNos();
     // Delete synced parcels whose Document_No is NOT in pulledDocNos
     final all = await db.query(
       _tableName,
@@ -521,7 +554,9 @@ class DatabaseHelper {
     final toDelete = <String>[];
     for (final row in all) {
       final doc = (row['Document_No'] ?? '').toString().trim().toUpperCase();
-      if (doc.isNotEmpty && !pulledDocNos.contains(doc)) {
+      if (doc.isNotEmpty &&
+          !pulledDocNos.contains(doc) &&
+          !batchDocs.contains(doc)) {
         toDelete.add(doc);
       }
     }

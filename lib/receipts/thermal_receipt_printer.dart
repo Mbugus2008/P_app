@@ -234,9 +234,15 @@ class ThermalReceiptPrinter {
     _printer.printCustom(docNo.toUpperCase(), 3, 1);
     _printer.printCustom(_divider, 0, 1);
 
-    // QR Code for scanning
+    // QR Code for scanning (reduced size to avoid printer buffer overflow)
     _printer.printNewLine();
-    await _printer.printQRcode(docNo.toUpperCase(), 200, 200, 1);
+    try {
+      await _printer.printQRcode(docNo.toUpperCase(), 150, 150, 1);
+    } catch (e) {
+      // Some printer models have limited buffer for QR bitmaps;
+      // fall back to a text-based representation
+      _printer.printCustom('Scan Doc: $docNo', 0, 1);
+    }
     _printer.printNewLine();
     _printer.printCustom(_divider, 0, 1);
 

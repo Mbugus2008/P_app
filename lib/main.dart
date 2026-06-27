@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import 'controllers/parcel_controller.dart';
 import 'pages/auth_wrapper.dart';
+import 'utilities/app_error_reporter.dart';
 import 'utilities/app_update_service.dart';
 import 'utilities/logger.dart';
 import 'utils/app_colors.dart';
@@ -12,6 +13,12 @@ void main() {
   Get.put(LoggerService());
   Get.put(ParcelController());
   Get.put(AppUpdateService());
+
+  // Setup global error reporting to API
+  AppErrorReporter.instance.init().then((_) {
+    AppErrorReporter.instance.setupGlobalHandler();
+  });
+
   runApp(const MyApp());
 }
 

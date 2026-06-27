@@ -19,6 +19,7 @@ import '../models/app_vehicle.dart';
 import '../models/batches.dart';
 import '../models/parcel_model.dart';
 import '../utilities/Apis.dart';
+import '../utilities/app_error_reporter.dart';
 import '../utilities/device_id.dart';
 
 class ParcelController extends GetxController {
@@ -82,6 +83,45 @@ class ParcelController extends GetxController {
   int get inTransitBatchCount => _inTransitBatches.length;
   List<Parcel> get receivedParcels => _receivedParcels;
   int get receivedParcelCount => _receivedParcels.length;
+
+  /// Completed (collected) parcels where the current location is either
+  /// the origin (From) or destination (To).
+  List<Parcel> get completedParcels {
+    final candidates =
+        _locationMatchCandidates().map((l) => l.toLowerCase()).toList();
+    if (candidates.isEmpty) return <Parcel>[];
+    return _parcels.where((p) {
+      if (p.Status != ParcelStatus.collected) return false;
+      final from = (p.From ?? '').trim().toLowerCase();
+      final to = (p.To ?? '').trim().toLowerCase();
+      return candidates.any((loc) => from == loc || to == loc);
+    }).toList();
+  }
+
+  int get completedParcelCount => completedParcels.length;
+
+  /// Parcels originating FROM the current location (outgoing).
+  List<Parcel> get parcelsFromLocation {
+    final candidates =
+        _locationMatchCandidates().map((l) => l.toLowerCase()).toList();
+    if (candidates.isEmpty) return <Parcel>[];
+    return _parcels.where((p) {
+      final from = (p.From ?? '').trim().toLowerCase();
+      return candidates.any((loc) => from == loc);
+    }).toList();
+  }
+
+  /// Parcels destined TO the current location (incoming).
+  List<Parcel> get parcelsToLocation {
+    final candidates =
+        _locationMatchCandidates().map((l) => l.toLowerCase()).toList();
+    if (candidates.isEmpty) return <Parcel>[];
+    return _parcels.where((p) {
+      final to = (p.To ?? '').trim().toLowerCase();
+      return candidates.any((loc) => to == loc);
+    }).toList();
+  }
+
   bool isReceivingBatch(String batchNo) => _receivingBatches.contains(batchNo);
   String get loggedInUserLabel {
     final user = _loggedInUser.value;
@@ -337,27 +377,45 @@ class ParcelController extends GetxController {
       for (final parcel in unsyncedParcels) {
         try {
           await _ensureParcelDefaults(parcel);
-          await _apiClient.createParcel(parcel);
-          await _dbHelper.updateParcel(parcel.copyWith(isSynced: true));
-          summary.pushedParcels++;
-        } catch (_) {
+          // Try create first (for new parcels). If BC already has it, fallback to update.
           try {
+            await _apiClient.createParcel(parcel);
+          } catch (createErr) {
+            if (kDebugMode)
+              debugPrint(
+                'Create failed for ${parcel.Document_No}, trying update: $createErr',
+              );
             await _apiClient.updateParcel(parcel);
+          }
+          // Verify the parcel is on BC by reading it back
+          final verified = await _apiClient.fetchParcelByDocumentNo(
+            parcel.Document_No ?? '',
+          );
+          if (verified != null) {
             await _dbHelper.updateParcel(parcel.copyWith(isSynced: true));
             summary.pushedParcels++;
-          } catch (e) {
-            summary.failedParcels++;
+          } else {
             if (kDebugMode) {
-              debugPrint('Background parcel push failed: $e');
+              debugPrint(
+                'Parcel ${parcel.Document_No} not found on BC after push — will retry',
+              );
             }
+            summary.failedParcels++;
           }
+        } catch (e, st) {
+          summary.failedParcels++;
+          if (kDebugMode) {
+            debugPrint('Parcel push failed for ${parcel.Document_No}: $e');
+          }
+          AppErrorReporter.instance.report(e, st);
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       summary.failedParcels++;
       if (kDebugMode) {
         debugPrint('Background unsynced parcel queue failed: $e');
       }
+      AppErrorReporter.instance.report(e, st);
     }
 
     try {
@@ -435,15 +493,18 @@ class ParcelController extends GetxController {
       _fixParcelLocations(parcelsToSave);
       await _dbHelper.upsertParcels(parcelsToSave);
 
-      // Clean up parcels deleted on BC but still local
-      if (parcelsPulled && pulledParcels.isNotEmpty) {
-        final pulledDocNos =
-            pulledParcels
-                .map((p) => (p.Document_No ?? '').trim().toUpperCase())
-                .where((d) => d.isNotEmpty)
-                .toSet();
-        await _dbHelper.deleteOrphanParcels(pulledDocNos);
-      }
+      // NOTE: deleteOrphanParcels is disabled — it can delete valid parcels
+      // that are simply not on the current pull page due to pagination or
+      // BC replication lag. Parcels should only be deleted via explicit delete.
+      // if (parcelsPulled && pulledParcels.isNotEmpty) {
+      //   final pulledDocNos =
+      //       pulledParcels
+      //           .map((p) => (p.Document_No ?? '').trim().toUpperCase())
+      //           .where((d) => d.isNotEmpty)
+      //           .toSet();
+      //   final batchDocs = await _dbHelper.getAllBatchParcelDocNos();
+      //   await _dbHelper.deleteOrphanParcels(pulledDocNos);
+      // }
     }
 
     if (batchesPulled) {
@@ -616,6 +677,9 @@ class ParcelController extends GetxController {
         'Dispatched',
         'Batch ${batch.batchNo ?? ''} is now In Transit.',
       );
+
+      // Send dispatch notification SMS to destination location
+      _sendDispatchSms(batch);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Error dispatching batch: $e');
@@ -626,6 +690,34 @@ class ParcelController extends GetxController {
     }
   }
 
+  Future<void> _sendDispatchSms(Batches batch) async {
+    try {
+      final toLocation = batch.toLocation?.trim() ?? '';
+      if (toLocation.isEmpty) return;
+
+      // Look up phone from synced local locations
+      final locations = await _dbHelper.getAllLocations();
+      final match = locations.where(
+        (l) => l.code.trim().toLowerCase() == toLocation.toLowerCase(),
+      );
+      if (match.isEmpty) return;
+      final phone = match.first.phoneNo?.trim() ?? '';
+      if (phone.isEmpty) return;
+
+      final vehicle = batch.vehicle?.trim() ?? 'N/A';
+      final count =
+          batch.parcelDocumentNos.where((d) => d.trim().isNotEmpty).length;
+      final msg =
+          '$count parcels have been dispatched from ${_currentLocation.value} to $toLocation with vehicle no $vehicle.';
+
+      await _apiClient.sendBulkSms([
+        {'Phone': phone, 'Message': msg, 'DocumentNo': batch.batchNo ?? ''},
+      ]);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Dispatch SMS failed: $e');
+    }
+  }
+
   Future<void> loadInTransitBatches() async {
     try {
       final locations = _locationMatchCandidates();
@@ -633,21 +725,11 @@ class ParcelController extends GetxController {
         _inTransitBatches.clear();
         return;
       }
-      // Load both incoming AND outgoing in-transit batches
+      // Only show batches coming TO this location (not outgoing)
       final incoming = await _dbHelper.getInTransitBatchesForLocation(
         locations,
       );
-      final outgoing = await _dbHelper.getDispatchedBatchesForLocation(
-        locations,
-      );
-      // Merge, deduplicate by batchNo
-      final seen = <String>{};
-      final merged = <Batches>[];
-      for (final b in [...incoming, ...outgoing]) {
-        final key = (b.batchNo ?? '').trim().toUpperCase();
-        if (key.isNotEmpty && seen.add(key)) merged.add(b);
-      }
-      _inTransitBatches.assignAll(merged);
+      _inTransitBatches.assignAll(incoming);
     } catch (e) {
       if (kDebugMode) debugPrint('Error loading in-transit batches: $e');
     }
@@ -751,9 +833,13 @@ class ParcelController extends GetxController {
             final isPaid = parcel.Paid == true;
             final msg =
                 isPaid
-                    ? 'Hello $name, your Parcel $doc from $sender has arrived at $location. COLLECTION CODE: $otp. Please come and collect it. Thank you.'
-                    : 'Hello $name, your Parcel $doc from $sender has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. COLLECTION CODE: $otp. Please pay before collection. Thank you.';
-            smsMessages.add({'Phone': phone, 'Message': msg});
+                    ? 'Hello $name, your Parcel $doc from $sender has arrived at $location. COLLECTION CODE: $otp. Please come and collect it. Thank you. REMBO CLASSIC'
+                    : 'Hello $name, your Parcel $doc from $sender has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. COLLECTION CODE: $otp. Please pay before collection. Thank you. REMBO CLASSIC';
+            smsMessages.add({
+              'Phone': phone,
+              'Message': msg,
+              'DocumentNo': doc,
+            });
           }
         }
       }
@@ -847,6 +933,8 @@ class ParcelController extends GetxController {
         paymentMethod: PaymentMethod.cash,
         isSynced: false,
         Payment_Received_By: _loggedInUser.value?.agentCode,
+        Payment_Date: DateTime.now(),
+        Payment_Time: DateTime.now(),
       );
       await _dbHelper.updateParcel(updated);
       try {
@@ -879,6 +967,8 @@ class ParcelController extends GetxController {
       mpesaCode: receiptCode,
       isSynced: false,
       Payment_Received_By: isPayLater ? null : _loggedInUser.value?.agentCode,
+      Payment_Date: isPayLater ? null : DateTime.now(),
+      Payment_Time: isPayLater ? null : DateTime.now(),
     );
     await _dbHelper.updateParcel(updated);
 

@@ -15,7 +15,6 @@ import '../controllers/parcel_controller.dart';
 import '../database/database_helper.dart';
 import '../dialogs/printer_selector_dialog.dart';
 import '../receipts/thermal_receipt_printer.dart';
-import '../utilities/device_id.dart';
 import '../utils/app_colors.dart';
 
 enum ReportType {
@@ -147,7 +146,7 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   void initState() {
     super.initState();
-    _selectedReport = widget.initialReport ?? ReportType.myCollections;
+    _selectedReport = widget.initialReport ?? ReportType.myCollectedParcels;
     final today = DateTime.now();
     _dateFrom = DateTime(today.year, today.month, today.day);
     _dateTo = DateTime(today.year, today.month, today.day, 23, 59, 59);

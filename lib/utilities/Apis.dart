@@ -765,7 +765,13 @@ class ApiClient extends ChangeNotifier {
     final payload = jsonEncode({
       'Messages':
           messages
-              .map((m) => {'Phone': m['Phone'], 'Message': m['Message']})
+              .map(
+                (m) => {
+                  'Phone': m['Phone'],
+                  'Message': m['Message'],
+                  'DocumentNo': m['DocumentNo'],
+                },
+              )
               .toList(),
     });
 
