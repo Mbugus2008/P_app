@@ -107,7 +107,9 @@ class ParcelController extends GetxController {
     if (candidates.isEmpty) return <Parcel>[];
     return _parcels.where((p) {
       final from = (p.From ?? '').trim().toLowerCase();
-      return candidates.any((loc) => from == loc);
+      return candidates.any(
+        (loc) => from == loc || from.contains(loc) || loc.contains(from),
+      );
     }).toList();
   }
 
@@ -118,7 +120,9 @@ class ParcelController extends GetxController {
     if (candidates.isEmpty) return <Parcel>[];
     return _parcels.where((p) {
       final to = (p.To ?? '').trim().toLowerCase();
-      return candidates.any((loc) => to == loc);
+      return candidates.any(
+        (loc) => to == loc || to.contains(loc) || loc.contains(to),
+      );
     }).toList();
   }
 
@@ -448,7 +452,7 @@ class ParcelController extends GetxController {
     }
 
     try {
-      pulledParcels = await _apiClient.fetchParcels();
+      pulledParcels = await _apiClient.fetchParcelsForSync(currentLocationCode);
       parcelsPulled = true;
       summary.pulledParcels = pulledParcels.length;
     } catch (e) {
@@ -669,7 +673,7 @@ class ParcelController extends GetxController {
                 debugPrint('Backend create failed for batch dispatch: $e');
             });
       }
-
+      //63552
       await loadParcels();
       await loadPendingBatches();
       await loadInTransitBatches();
@@ -766,15 +770,10 @@ class ParcelController extends GetxController {
     try {
       final location = _currentLocation.value.trim();
 
-      // 1. Update batch status to received
-      batch.status = BatchStatus.received;
-      batch.receivedDateTime = DateTime.now();
-      batch.updatedAt = DateTime.now();
-      batch.isSynced = false;
-      await _dbHelper.updateBatch(batch);
-
-      // 2. Update all parcels in batch to received
+      // 1. Update all parcels in batch to received
       final smsMessages = <Map<String, String>>[];
+      final skippedDocs = <String>[];
+      var receivedCount = 0;
       for (final docNo in batch.parcelDocumentNos) {
         if (docNo.trim().isEmpty) continue;
         var parcel = await _dbHelper.getParcel(docNo);
@@ -787,11 +786,19 @@ class ParcelController extends GetxController {
             if (remote != null) {
               await _dbHelper.upsertParcels([remote]);
               parcel = remote;
+            } else {
+              skippedDocs.add(docNo);
+              if (kDebugMode) {
+                debugPrint('Parcel $docNo not found on backend');
+              }
+              continue;
             }
           } catch (e) {
+            skippedDocs.add(docNo);
             if (kDebugMode) {
               debugPrint('Failed to fetch parcel $docNo for receive: $e');
             }
+            continue;
           }
         }
 
@@ -811,6 +818,7 @@ class ParcelController extends GetxController {
             Receiver_Code: otp,
           );
           await _dbHelper.updateParcel(updated);
+          receivedCount++;
 
           // Push immediately; on failure the sync cycle retries while the
           // parcel stays unsynced (and protected from pull overwrites).
@@ -844,6 +852,15 @@ class ParcelController extends GetxController {
         }
       }
 
+      // 2. Mark batch as received only if all parcels processed
+      if (skippedDocs.isEmpty) {
+        batch.status = BatchStatus.received;
+        batch.receivedDateTime = DateTime.now();
+        batch.updatedAt = DateTime.now();
+        batch.isSynced = false;
+        await _dbHelper.updateBatch(batch);
+      }
+
       // 3. Send bulk SMS
       if (smsMessages.isNotEmpty) {
         try {
@@ -858,21 +875,34 @@ class ParcelController extends GetxController {
         }
       }
 
-      // 4. Sync batch to backend
-      try {
-        await _apiClient.updateBatch(batch);
-        batch.isSynced = true;
-        await _dbHelper.updateBatch(batch);
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('Backend sync failed for batch receive: $e');
+      // 4. Sync batch to backend (only if received)
+      if (skippedDocs.isEmpty) {
+        try {
+          await _apiClient.updateBatch(batch);
+          batch.isSynced = true;
+          await _dbHelper.updateBatch(batch);
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Backend sync failed for batch receive: $e');
+          }
         }
       }
 
       await loadParcels();
       await loadInTransitBatches();
       await loadReceivedParcels();
-      _showSnack('Received', 'Batch ${batch.batchNo ?? ''} has been received.');
+      if (skippedDocs.isNotEmpty) {
+        _showSnack(
+          'Warning',
+          'Processed $receivedCount of ${batch.parcelDocumentNos.where((d) => d.trim().isNotEmpty).length} parcels. '
+              'Not found: ${skippedDocs.join(', ')}. They will be retried on next sync.',
+        );
+      } else {
+        _showSnack(
+          'Received',
+          'Batch ${batch.batchNo ?? ''} has been received.',
+        );
+      }
     } catch (e) {
       if (kDebugMode) debugPrint('Error receiving batch: $e');
       _showSnack('Error', 'Failed to receive batch. Please try again.');

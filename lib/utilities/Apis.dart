@@ -342,6 +342,32 @@ class ApiClient extends ChangeNotifier {
         .toList();
   }
 
+  /// Sync fetch: (From=loc OR To=loc) AND (Date_sent=today OR Status!=Collected)
+  Future<List<Parcel>> fetchParcelsForSync(String locationCode) async {
+    final payload = jsonEncode({
+      'SyncLocation': locationCode,
+      'PageSize': 0,
+    });
+    final response = await postdata('Parcels', payload);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to sync parcels. HTTP ${response.statusCode}');
+    }
+
+    final dynamic decoded = jsonDecode(response.body);
+    _ensureSuccess(decoded);
+
+    final dynamic contents = _readEnvelopeValue(decoded, 'Contents');
+    if (contents is! List) return <Parcel>[];
+
+    return contents
+        .whereType<Map>()
+        .map((item) => Parcel.fromJson(Map<String, dynamic>.from(item)))
+        .map((parcel) => parcel.copyWith(isSynced: true))
+        .where((parcel) => (parcel.Document_No ?? '').trim().isNotEmpty)
+        .toList();
+  }
+
   Future<List<Parcel>> fetchParcels({int pageSize = 1000}) async {
     final payload = jsonEncode({'PageSize': pageSize});
     var response = await postdata(
@@ -379,6 +405,54 @@ class ApiClient extends ChangeNotifier {
     if (contents is! List) {
       return <Parcel>[];
     }
+
+    return contents
+        .whereType<Map>()
+        .map((item) => Parcel.fromJson(Map<String, dynamic>.from(item)))
+        .map((parcel) => parcel.copyWith(isSynced: true))
+        .where((parcel) => (parcel.Document_No ?? '').trim().isNotEmpty)
+        .toList();
+  }
+
+  /// Fetches parcels directly from BC filtered by location and date range.
+  Future<List<Parcel>> fetchParcelsByLocation({
+    String? fromLocation,
+    String? toLocation,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int pageSize = 1000,
+  }) async {
+    final payload = <String, dynamic>{'PageSize': pageSize};
+    if (fromLocation != null && fromLocation.isNotEmpty) {
+      payload['fromLocation'] = fromLocation;
+    }
+    if (toLocation != null && toLocation.isNotEmpty) {
+      payload['toLocation'] = toLocation;
+    }
+    if (dateFrom != null) {
+      payload['dateFrom'] = dateFrom.toIso8601String().split('T').first;
+    }
+    if (dateTo != null) {
+      payload['dateTo'] = dateTo.toIso8601String().split('T').first;
+    }
+
+    final response = await postdata(
+      'parcels',
+      jsonEncode(payload),
+      ignoredStatusCodes: const <int>{404},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to fetch location parcels. HTTP ${response.statusCode}',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(response.body);
+    _ensureSuccess(decoded);
+
+    final dynamic contents = _readEnvelopeValue(decoded, 'Contents');
+    if (contents is! List) return <Parcel>[];
 
     return contents
         .whereType<Map>()

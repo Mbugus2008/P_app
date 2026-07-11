@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
 import '../controllers/parcel_controller.dart';
+import '../dialogs/printer_selector_dialog.dart';
 import '../models/parcel_model.dart';
+import '../receipts/thermal_receipt_printer.dart';
+import '../utilities/Apis.dart';
 import '../utilities/status_color.dart';
 
 class LocationParcelsPage extends StatefulWidget {
@@ -29,6 +33,40 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   PaymentMethod? _toPaymentFilter;
 
   final Set<String> _expandedGroups = {};
+  List<Parcel>? _liveFromParcels;
+  List<Parcel>? _liveToParcels;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchLiveFromBc());
+  }
+
+  Future<void> _fetchLiveFromBc() async {
+    try {
+      final api = ApiClient();
+      final loc = _controller.currentLocation;
+      final results = await Future.wait([
+        api.fetchParcelsByLocation(
+          fromLocation: loc,
+          dateFrom: _fromDate,
+          dateTo: _toDate,
+        ),
+        api.fetchParcelsByLocation(
+          toLocation: loc,
+        ), // no date filter — need all To parcels for Paid Today
+      ]);
+      if (mounted) {
+        setState(() {
+          _liveFromParcels = results[0];
+          _liveToParcels = results[1];
+        });
+      }
+    } catch (e) {
+      // Live fetch failed — fall back to local DB silently
+      if (kDebugMode) debugPrint('Live fetch failed: $e');
+    }
+  }
 
   @override
   void dispose() {
@@ -70,24 +108,44 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
     return map;
   }
 
-  Map<String, List<Parcel>> _groupByFrom(List<Parcel> parcels) {
+  /// Groups parcels by Date_sent, sorted latest first.
+  List<MapEntry<String, List<Parcel>>> _groupByDate(List<Parcel> parcels) {
     final map = <String, List<Parcel>>{};
     for (final p in parcels) {
-      final key = (p.From ?? 'Unknown').trim();
-      map.putIfAbsent(key.isEmpty ? 'Unknown' : key, () => <Parcel>[]).add(p);
+      final d = p.Date_sent ?? p.Date_Created ?? DateTime.now();
+      final key = DateFormat('dd MMM yyyy').format(d);
+      map.putIfAbsent(key, () => <Parcel>[]).add(p);
     }
-    return map;
+    final entries = map.entries.toList();
+    entries.sort((a, b) => b.key.compareTo(a.key)); // latest first
+    return entries;
   }
 
-  Future<void> _pickDate(bool isFrom) async {
-    final picked = await showDatePicker(
+  Future<void> _pickDateRange() async {
+    final range = await showDateRangePicker(
       context: context,
-      initialDate: isFrom ? _fromDate : _toDate,
       firstDate: DateTime(2024),
       lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
+      builder:
+          (ctx, child) => Theme(
+            data: Theme.of(ctx).copyWith(
+              colorScheme: const ColorScheme.light(
+                primary: Color(0xFF667eea),
+                onPrimary: Colors.white,
+                surface: Colors.white,
+              ),
+            ),
+            child: child!,
+          ),
     );
-    if (picked != null)
-      setState(() => isFrom ? _fromDate = picked : _toDate = picked);
+    if (range != null) {
+      setState(() {
+        _fromDate = range.start;
+        _toDate = range.end;
+      });
+      _fetchLiveFromBc();
+    }
   }
 
   @override
@@ -98,79 +156,9 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         toolbarHeight: 72,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _appBarDateChip('From', _fromDate, () => _pickDate(true)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Icon(
-                Icons.arrow_forward_rounded,
-                size: 18,
-                color: Colors.white.withValues(alpha: 0.6),
-              ),
-            ),
-            _appBarDateChip('To', _toDate, () => _pickDate(false)),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(36),
-          child: Container(
-            color: Colors.black.withValues(alpha: 0.15),
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _appBarFilterChip(
-                  'Status',
-                  _fromStatusFilter?.name ?? 'All',
-                  () => _showFilterMenu(
-                    'Status',
-                    const {
-                      'All': null,
-                      'Pending': ParcelStatus.pending,
-                      'In Transit': ParcelStatus.inTransit,
-                      'Received': ParcelStatus.received,
-                      'Collected': ParcelStatus.collected,
-                    },
-                    (v) =>
-                        setState(() => _fromStatusFilter = v as ParcelStatus?),
-                    _fromStatusFilter,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _appBarFilterChip(
-                  'Paid',
-                  _fromPaidFilter == null
-                      ? 'All'
-                      : (_fromPaidFilter == true ? 'Paid' : 'Unpaid'),
-                  () => _showFilterMenu(
-                    'Paid',
-                    const {'All': null, 'Paid': true, 'Unpaid': false},
-                    (v) => setState(() => _fromPaidFilter = v as bool?),
-                    _fromPaidFilter,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _appBarFilterChip(
-                  'Pay',
-                  _fromPaymentFilter?.name ?? 'All',
-                  () => _showFilterMenu(
-                    'Pay',
-                    const {
-                      'All': null,
-                      'Cash': PaymentMethod.cash,
-                      'M-Pesa': PaymentMethod.mpesa,
-                    },
-                    (v) => setState(
-                      () => _fromPaymentFilter = v as PaymentMethod?,
-                    ),
-                    _fromPaymentFilter,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        title: _appBarDateChip(
+          '${DateFormat('dd/MM/yy').format(_fromDate)} .. ${DateFormat('dd/MM/yy').format(_toDate)}',
+          _pickDateRange,
         ),
         centerTitle: true,
         flexibleSpace: Container(
@@ -201,8 +189,12 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
               child: CircularProgressIndicator(color: Colors.white),
             );
 
-          final fromRaw = _applyDateFilter(_controller.parcelsFromLocation);
-          final toRaw = _applyDateFilter(_controller.parcelsToLocation);
+          // Use live BC data if available, otherwise local DB
+          final fromLoc = _liveFromParcels ?? _controller.parcelsFromLocation;
+          final toLoc = _liveToParcels ?? _controller.parcelsToLocation;
+
+          final fromRaw = _applyDateFilter(fromLoc);
+          final toRaw = _applyDateFilter(toLoc);
           final fromParcels = _applyChipFilters(
             fromRaw,
             status: _fromStatusFilter,
@@ -216,13 +208,20 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
             method: _toPaymentFilter,
           );
           final fromGrouped = _groupByTo(fromParcels);
-          final toGrouped = _groupByFrom(toParcels);
+          final toDateGrouped = _groupByDate(toParcels);
 
           return RefreshIndicator(
             onRefresh: () async => setState(() {}),
             child: Column(
               children: [
-                const SizedBox(height: 110),
+                SizedBox(height: MediaQuery.of(context).padding.top + 80),
+                _buildTopSummary(
+                  fromParcels,
+                  toParcels,
+                  location,
+                  allToParcels: toLoc,
+                ),
+                const SizedBox(height: 6),
                 Expanded(
                   child: _buildHalf(
                     'From $location',
@@ -248,14 +247,13 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: _buildHalf(
-                      'To $location',
+                    child: _buildDateHalf(
+                      'Received at $location',
                       Icons.arrow_downward_rounded,
-                      toGrouped,
+                      toDateGrouped,
                       const Color(0xFF4FACFE),
-                      'No parcels sent to $location',
+                      'No parcels received at $location',
                       _toScrollCtrl,
-                      'From',
                       toParcels.length,
                     ),
                   ),
@@ -268,23 +266,465 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
     );
   }
 
-  Widget _appBarDateChip(String label, DateTime date, VoidCallback onTap) {
+  Widget _buildTopSummary(
+    List<Parcel> fromParcels,
+    List<Parcel> toParcels,
+    String location, {
+    List<Parcel>? allToParcels,
+  }) {
+    final dateStr =
+        '${DateFormat('dd/MM/yy').format(_fromDate)} .. ${DateFormat('dd/MM/yy').format(_toDate)}';
+
+    // --- Sent ---
+    final sentTotal = fromParcels.length;
+    final sentPaid = fromParcels.where((p) => p.Paid == true).length;
+    final sentCash = fromParcels
+        .where(
+          (p) =>
+              p.paymentMethod == PaymentMethod.cash &&
+              p.Who_to_Pay == WhoToPay.Sender,
+        )
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+    final sentMpesa = fromParcels
+        .where(
+          (p) =>
+              p.paymentMethod == PaymentMethod.mpesa &&
+              p.Who_to_Pay == WhoToPay.Sender,
+        )
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+
+    // --- Received ---
+    final recvTotal = toParcels.length;
+    final recvPaid = toParcels.where((p) => p.Paid == true).length;
+    final recvCash = toParcels
+        .where(
+          (p) =>
+              p.paymentMethod == PaymentMethod.cash &&
+              p.Who_to_Pay == WhoToPay.Receiver,
+        )
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+    final recvMpesa = toParcels
+        .where(
+          (p) =>
+              p.paymentMethod == PaymentMethod.mpesa &&
+              p.Who_to_Pay == WhoToPay.Receiver,
+        )
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+
+    // --- Paid Today (Payment_Date within range, Date_sent outside, To this location) ---
+    // Use allToParcels (live BC) if available, otherwise fall back to local DB
+    final paidTodaySource = allToParcels ?? _controller.parcels;
+    final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
+    final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
+    bool _inDateRange(DateTime? d) =>
+        d != null && !d.isBefore(from) && !d.isAfter(to);
+    final paidTodayAll =
+        paidTodaySource.where((p) {
+          // Must be destined TO this location (payment collected here)
+          final to = (p.To ?? '').trim().toLowerCase();
+          final locLower = location.toLowerCase().trim();
+          final codeLower =
+              _controller.currentLocationCode.toLowerCase().trim();
+          final nameLower =
+              _controller.currentLocationName.toLowerCase().trim();
+          final matches =
+              to == locLower ||
+              to == codeLower ||
+              to == nameLower ||
+              to.contains(locLower) ||
+              locLower.contains(to) ||
+              to.contains(codeLower) ||
+              codeLower.contains(to) ||
+              to.contains(nameLower) ||
+              nameLower.contains(to);
+          if (!matches) return false;
+          // Payment date must be within range
+          if (!_inDateRange(p.Payment_Date)) return false;
+          // Send date must be OUTSIDE range (sent on a previous day)
+          final sent = p.Date_sent ?? p.Date_Created;
+          if (sent != null && _inDateRange(sent)) return false;
+          return true;
+        }).toList();
+    final paidTodayPaidList =
+        paidTodayAll.where((p) => p.Paid == true).toList();
+    final paidTodayTotal = paidTodayAll.length;
+    final paidTodayPaid = paidTodayPaidList.length;
+    final paidTodayCash = paidTodayPaidList
+        .where((p) => p.paymentMethod == PaymentMethod.cash)
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+    final paidTodayMpesa = paidTodayPaidList
+        .where((p) => p.paymentMethod == PaymentMethod.mpesa)
+        .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+
+    // --- Totals ---
+    final totalCash = sentCash + recvCash + paidTodayCash;
+    final totalMpesa = sentMpesa + recvMpesa + paidTodayMpesa;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              const Icon(
+                Icons.summarize_rounded,
+                size: 20,
+                color: Color(0xFF667eea),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Summary — ',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF2D3436),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  location,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF2D3436),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                dateStr,
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap:
+                    () => _printSummary(
+                      location,
+                      dateStr,
+                      sentTotal,
+                      sentPaid,
+                      sentCash,
+                      sentMpesa,
+                      recvTotal,
+                      recvPaid,
+                      recvCash,
+                      recvMpesa,
+                      paidTodayTotal,
+                      paidTodayPaid,
+                      paidTodayCash,
+                      paidTodayMpesa,
+                      totalCash,
+                      totalMpesa,
+                    ),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF667eea).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.print_rounded,
+                    size: 18,
+                    color: Color(0xFF667eea),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Table
+          Table(
+            columnWidths: const {
+              0: FlexColumnWidth(2),
+              1: FlexColumnWidth(1),
+              2: FlexColumnWidth(1),
+              3: FlexColumnWidth(1.3),
+              4: FlexColumnWidth(1.3),
+            },
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: [
+              // Header row
+              _tableHeaderRow(['', 'Total', 'Paid', 'Cash', 'M-Pesa']),
+              // Sent
+              _tableDataRow(
+                'Sent',
+                Icons.arrow_upward_rounded,
+                const Color(0xFFFF7E5F),
+                sentTotal,
+                sentPaid,
+                sentCash,
+                sentMpesa,
+              ),
+              // Received
+              _tableDataRow(
+                'Received',
+                Icons.arrow_downward_rounded,
+                const Color(0xFF4FACFE),
+                recvTotal,
+                recvPaid,
+                recvCash,
+                recvMpesa,
+              ),
+              // Paid Today
+              _tableDataRow(
+                'Paid Today',
+                Icons.payment_rounded,
+                const Color(0xFF00B894),
+                paidTodayTotal,
+                paidTodayPaid,
+                paidTodayCash,
+                paidTodayMpesa,
+              ),
+              // TOTAL
+              _tableTotalRow(totalCash, totalMpesa),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _printSummary(
+    String location,
+    String dateStr,
+    int sentTotal,
+    int sentPaid,
+    double sentCash,
+    double sentMpesa,
+    int recvTotal,
+    int recvPaid,
+    double recvCash,
+    double recvMpesa,
+    int paidTodayTotal,
+    int paidTodayPaid,
+    double paidTodayCash,
+    double paidTodayMpesa,
+    double totalCash,
+    double totalMpesa,
+  ) async {
+    final printer = ThermalReceiptPrinter();
+    final connected = await printer.isConnected();
+
+    if (!connected) {
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (_) => const PrinterSelectorDialog(),
+      );
+      final reconnected = await printer.isConnected();
+      if (!reconnected) return;
+    }
+
+    try {
+      final totalAll = sentTotal + recvTotal + paidTodayTotal;
+      final totalRevenue =
+          sentCash +
+          sentMpesa +
+          recvCash +
+          recvMpesa +
+          paidTodayCash +
+          paidTodayMpesa;
+      final fmt = NumberFormat('#,##0');
+
+      await printer.printReport(
+        title: 'Location Summary — $location',
+        dateRange: dateStr,
+        columns: const ['', 'Total', 'Paid', 'Cash', 'M-Pesa'],
+        rows: [
+          [
+            'Sent',
+            sentTotal.toString(),
+            sentPaid.toString(),
+            fmt.format(sentCash),
+            fmt.format(sentMpesa),
+          ],
+          [
+            'Received',
+            recvTotal.toString(),
+            recvPaid.toString(),
+            fmt.format(recvCash),
+            fmt.format(recvMpesa),
+          ],
+          [
+            'Paid Today',
+            paidTodayTotal.toString(),
+            paidTodayPaid.toString(),
+            fmt.format(paidTodayCash),
+            fmt.format(paidTodayMpesa),
+          ],
+          ['TOTAL', '', '', fmt.format(totalCash), fmt.format(totalMpesa)],
+        ],
+        totalCount: totalAll,
+        totalAmount: totalRevenue,
+        location: location,
+        printedBy: _controller.loggedInUserLabel,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Print failed: $e')));
+    }
+  }
+
+  TableRow _tableHeaderRow(List<String> headers) {
+    return TableRow(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      children:
+          headers
+              .map(
+                (h) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    h,
+                    textAlign: h.isEmpty ? TextAlign.left : TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+    );
+  }
+
+  TableRow _tableDataRow(
+    String label,
+    IconData icon,
+    Color color,
+    int total,
+    int paid,
+    double cash,
+    double mpesa,
+  ) {
+    final fmt = NumberFormat('#,##0');
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            children: [
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _tableCell(total.toString(), Colors.black87),
+        _tableCell(paid.toString(), const Color(0xFF00B894)),
+        _tableCell(
+          fmt.format(cash),
+          const Color(0xFF636E72),
+          align: TextAlign.right,
+        ),
+        _tableCell(
+          fmt.format(mpesa),
+          const Color(0xFF636E72),
+          align: TextAlign.right,
+        ),
+      ],
+    );
+  }
+
+  TableRow _tableTotalRow(double cash, double mpesa) {
+    final fmt = NumberFormat('#,##0');
+    return TableRow(
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade300, width: 1.5),
+        ),
+      ),
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text(
+            'TOTAL',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+          ),
+        ),
+        const SizedBox(),
+        const SizedBox(),
+        _tableCell(
+          fmt.format(cash),
+          const Color(0xFF00B894),
+          bold: true,
+          align: TextAlign.right,
+        ),
+        _tableCell(
+          fmt.format(mpesa),
+          const Color(0xFF667eea),
+          bold: true,
+          align: TextAlign.right,
+        ),
+      ],
+    );
+  }
+
+  Widget _tableCell(
+    String text,
+    Color color, {
+    bool bold = false,
+    TextAlign align = TextAlign.center,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Text(
+        text,
+        textAlign: align,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _appBarDateChip(String label, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Chip(
         label: Text(
-          '$label ${DateFormat('dd/MM/yy').format(date)}',
+          label,
           style: const TextStyle(
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: FontWeight.w700,
             color: Colors.white,
           ),
         ),
-        backgroundColor: Colors.white.withValues(alpha: 0.3),
+        backgroundColor: Colors.black.withValues(alpha: 0.35),
         side: BorderSide.none,
         avatar: const Icon(
-          Icons.calendar_today_rounded,
-          size: 14,
+          Icons.date_range_rounded,
+          size: 15,
           color: Colors.white,
         ),
         padding: EdgeInsets.zero,
@@ -293,168 +733,86 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
     );
   }
 
-  Widget _appBarFilterChip(String label, String value, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Chip(
-        label: Text(
-          '$label: $value',
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: Colors.white.withValues(alpha: 0.25),
-        side: BorderSide.none,
-        padding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-      ),
-    );
-  }
-
-  void _showFilterMenu<T>(
+  Widget _buildDateHalf(
     String title,
-    Map<String, T?> options,
-    void Function(T?) onSelected,
-    T? current,
+    IconData icon,
+    List<MapEntry<String, List<Parcel>>> grouped,
+    Color color,
+    String emptyMsg,
+    ScrollController scrollCtrl,
+    int total,
   ) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder:
-          (ctx) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const Divider(),
-                ...options.entries.map(
-                  (e) => ListTile(
-                    title: Text(e.key),
-                    trailing:
-                        current == e.value
-                            ? const Icon(Icons.check, color: Color(0xFF667eea))
-                            : null,
-                    onTap: () {
-                      onSelected(e.value);
-                      Navigator.pop(ctx);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-    );
-  }
-
-  Widget _statusDropdown(
-    ParcelStatus? value,
-    void Function(ParcelStatus?) onChanged,
-  ) {
-    return _filterDropdown(
-      value: value?.name,
-      items: const {
-        'all': 'All Status',
-        'pending': 'Pending',
-        'inTransit': 'In Transit',
-        'received': 'Received',
-        'collected': 'Collected',
-      },
-      onChanged:
-          (k) => onChanged(
-            k == 'all'
-                ? null
-                : ParcelStatus.values.firstWhere((s) => s.name == k),
-          ),
-    );
-  }
-
-  Widget _paidDropdown(bool? value, void Function(bool?) onChanged) {
-    return _filterDropdown(
-      value: value == null ? 'all' : (value ? 'paid' : 'unpaid'),
-      items: const {'all': 'All Paid', 'paid': 'Paid', 'unpaid': 'Unpaid'},
-      onChanged: (k) => onChanged(k == 'all' ? null : k == 'paid'),
-    );
-  }
-
-  Widget _methodDropdown(
-    PaymentMethod? value,
-    void Function(PaymentMethod?) onChanged,
-  ) {
-    return _filterDropdown(
-      value: value?.name,
-      items: const {'all': 'All Payment', 'cash': 'Cash', 'mpesa': 'M-Pesa'},
-      onChanged:
-          (k) => onChanged(
-            k == 'all'
-                ? null
-                : PaymentMethod.values.firstWhere((m) => m.name == k),
-          ),
-    );
-  }
-
-  Widget _filterDropdown({
-    required String? value,
-    required Map<String, String> items,
-    required void Function(String) onChanged,
-  }) {
-    final selectedLabel = items[value] ?? items.values.first;
-    return PopupMenuButton<String>(
-      onSelected: onChanged,
-      offset: const Offset(0, 40),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey.shade300),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: _sectionHeader(title, icon, total, color),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              selectedLabel!,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey.shade600),
-          ],
-        ),
-      ),
-      itemBuilder:
-          (ctx) =>
-              items.entries
-                  .map(
-                    (e) => PopupMenuItem<String>(
-                      value: e.key,
-                      child: Text(
-                        e.value,
-                        style: const TextStyle(fontSize: 13),
-                      ),
+        Expanded(
+          child:
+              grouped.isEmpty
+                  ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.inbox_rounded,
+                          size: 36,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          emptyMsg,
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   )
-                  .toList(),
+                  : ListView.builder(
+                    controller: scrollCtrl,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+                    itemCount: grouped.length,
+                    itemBuilder: (ctx, i) {
+                      final entry = grouped[i];
+                      final dateKey = entry.key;
+                      final parcels = entry.value;
+                      final paidCount =
+                          parcels.where((p) => p.Paid == true).length;
+                      final cashAmt = parcels
+                          .where((p) => p.paymentMethod == PaymentMethod.cash)
+                          .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+                      final mpesaAmt = parcels
+                          .where((p) => p.paymentMethod == PaymentMethod.mpesa)
+                          .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _DateGroup(
+                          groupKey: '$title|$dateKey',
+                          date: dateKey,
+                          parcels: parcels,
+                          paidCount: paidCount,
+                          cashAmount: cashAmt,
+                          mpesaAmount: mpesaAmt,
+                          color: color,
+                          expanded: _expandedGroups.contains('$title|$dateKey'),
+                          onToggle:
+                              () => setState(() {
+                                final key = '$title|$dateKey';
+                                if (_expandedGroups.contains(key))
+                                  _expandedGroups.remove(key);
+                                else
+                                  _expandedGroups.add(key);
+                              }),
+                        ),
+                      );
+                    },
+                  ),
+        ),
+      ],
     );
   }
 
@@ -597,125 +955,6 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         ],
       ),
     );
-  }
-
-  Widget _compactCard(Parcel parcel, Color routeColor) {
-    final color = getStatusColor(parcel.Status ?? ParcelStatus.pending);
-    final isPaid = parcel.Paid == true;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: routeColor.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    parcel.Document_No ?? '-',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2D3436),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${parcel.Sender_Name ?? '-'} → ${parcel.Receiver_Name ?? '-'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.schedule_rounded,
-                        size: 10,
-                        color: Colors.grey.shade400,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        _formatDateTime(
-                          parcel.Time_Created ??
-                              parcel.Date_Created ??
-                              parcel.Date_sent,
-                        ),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    gradient:
-                        isPaid
-                            ? const LinearGradient(
-                              colors: [Color(0xFF00B894), Color(0xFF00A381)],
-                            )
-                            : const LinearGradient(
-                              colors: [Color(0xFFFF7675), Color(0xFFD63031)],
-                            ),
-                  ),
-                  child: Text(
-                    isPaid ? 'PAID' : 'DUE',
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 3),
-                if (parcel.Amount_Paid != null && parcel.Amount_Paid! > 0)
-                  Text(
-                    'KES ${parcel.Amount_Paid!.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDateTime(DateTime? dt) {
-    if (dt == null) return '-';
-    return DateFormat('dd MMM HH:mm').format(dt);
   }
 }
 
@@ -1035,5 +1274,159 @@ class _CompactParcelCard extends StatelessWidget {
   String _fmt(DateTime? dt) {
     if (dt == null) return '-';
     return DateFormat('dd MMM HH:mm').format(dt);
+  }
+}
+
+class _DateGroup extends StatelessWidget {
+  final String groupKey;
+  final String date;
+  final List<Parcel> parcels;
+  final int paidCount;
+  final double cashAmount;
+  final double mpesaAmount;
+  final Color color;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  const _DateGroup({
+    required this.groupKey,
+    required this.date,
+    required this.parcels,
+    required this.paidCount,
+    required this.cashAmount,
+    required this.mpesaAmount,
+    required this.color,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = parcels.length;
+    final unpaidCount = total - paidCount;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.vertical(top: const Radius.circular(14)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_down_rounded
+                            : Icons.keyboard_arrow_right_rounded,
+                        size: 20,
+                        color: color,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          date,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$total',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _chip('Paid', paidCount, const Color(0xFF00B894)),
+                      _chip('Unpaid', unpaidCount, const Color(0xFFE74A3B)),
+                      _chip(
+                        'Cash',
+                        '${cashAmount.toStringAsFixed(0)}',
+                        const Color(0xFFE17055),
+                      ),
+                      _chip(
+                        'M-Pesa',
+                        '${mpesaAmount.toStringAsFixed(0)}',
+                        const Color(0xFF667eea),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Column(
+                children:
+                    parcels
+                        .map(
+                          (p) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: _CompactParcelCard(parcel: p, color: color),
+                          ),
+                        )
+                        .toList(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, dynamic value, Color chipColor) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$label: ',
+          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+        ),
+        Text(
+          '$value',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: chipColor,
+          ),
+        ),
+      ],
+    );
   }
 }

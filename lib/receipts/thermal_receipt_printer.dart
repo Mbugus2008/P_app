@@ -418,7 +418,7 @@ class ThermalReceiptPrinter {
       _printer.printCustom(_divider, 0, 1);
     }
 
-    if (columns.length <= 3) {
+    if (columns.length <= 5) {
       _printTabular(columns, rows);
     } else {
       _printBlocked(columns, rows);
@@ -436,8 +436,16 @@ class ThermalReceiptPrinter {
       widths.add(_lineWidthChars);
     } else if (colCount == 2) {
       widths.addAll([16, 16]);
-    } else {
+    } else if (colCount == 3) {
       widths.addAll([13, 8, 11]);
+    } else if (colCount == 5) {
+      widths.addAll([8, 6, 6, 6, 6]);
+    } else {
+      // fallback: equal distribution
+      final w = _lineWidthChars ~/ colCount;
+      for (var i = 0; i < colCount; i++) {
+        widths.add(w);
+      }
     }
 
     final headerParts = <String>[];

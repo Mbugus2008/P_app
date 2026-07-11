@@ -33,6 +33,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   final _batchExpanded = ''.obs;
   final _searchQuery = ''.obs;
   final _expandedDateGroups = <String>{}.obs;
+  bool _hasAutoExpandedDates = false;
   String _appVersion = '';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
@@ -392,6 +393,29 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                             color: AppColors.secondary,
                           ),
                         ),
+                      if (progress >= 1.0)
+                        TextButton(
+                          onPressed: () => _updateService.installUpdate(),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 2,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            backgroundColor: AppColors.secondary.withAlpha(25),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Install',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -413,10 +437,6 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
           // Main content
           Expanded(
             child: Obx(() {
-              if (_controller.isLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
               // Read ALL reactive values here so the single Obx subscribes to everything
               final parcels = _controller.parcels;
               final grouped = _controller.parcelsByStatus;
@@ -977,90 +997,125 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     ThemeData theme,
     BuildContext context,
   ) {
-    // Group by date (falling back to Date_sent)
-    final Map<String, List<Parcel>> grouped = {};
+    // Group by date, storing DateTime for proper sorting
+    final Map<DateTime, List<Parcel>> grouped = {};
     for (final p in parcels) {
-      final dt = p.Date_Delivered ?? p.Date_sent ?? DateTime.now();
-      final key = DateFormat('EEEE, dd MMM yyyy').format(dt);
-      grouped.putIfAbsent(key, () => <Parcel>[]).add(p);
+      final dt = p.Date_sent ?? p.Date_Created ?? DateTime.now();
+      final day = DateTime(dt.year, dt.month, dt.day);
+      grouped.putIfAbsent(day, () => <Parcel>[]).add(p);
     }
 
     // Sort dates descending (newest first)
-    final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+    final sortedDays = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
-    // Auto-expand today's group on first load
-    final todayKey = DateFormat('EEEE, dd MMM yyyy').format(DateTime.now());
-    if (_expandedDateGroups.isEmpty && grouped.containsKey(todayKey)) {
-      _expandedDateGroups.add(todayKey);
+    // Auto-expand today's group on first load (once only)
+    final today = DateTime.now();
+    final todayDay = DateTime(today.year, today.month, today.day);
+    if (!_hasAutoExpandedDates && grouped.containsKey(todayDay)) {
+      _hasAutoExpandedDates = true;
+      _expandedDateGroups.add(todayDay.toIso8601String());
     }
 
     final widgets = <Widget>[];
-    for (final day in sortedKeys) {
+    for (final day in sortedDays) {
       final dayParcels = grouped[day]!;
-      final isExpanded = _expandedDateGroups.contains(day);
+      final dayKey = day.toIso8601String();
+      final dayLabel = DateFormat('EEEE, dd MMM yyyy').format(day);
+      final isExpanded = _expandedDateGroups.contains(dayKey);
+      final paidCount = dayParcels.where((p) => p.Paid == true).length;
+      final unpaidCount = dayParcels.length - paidCount;
+      final paidAmt = dayParcels
+          .where((p) => p.Paid == true)
+          .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+      final unpaidAmt = dayParcels
+          .where((p) => p.Paid != true)
+          .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
 
       widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: InkWell(
-            onTap: () {
-              if (isExpanded) {
-                _expandedDateGroups.remove(day);
-              } else {
-                _expandedDateGroups.add(day);
-              }
-              _expandedDateGroups.refresh();
-            },
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  AnimatedRotation(
-                    turns: isExpanded ? 0.25 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Icon(
-                      isExpanded ? Icons.expand_more : Icons.chevron_right,
-                      size: 18,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.calendar_today, size: 13, color: color),
-                  const SizedBox(width: 6),
-                  Text(
-                    day,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '${dayParcels.length}',
-                      style: theme.textTheme.labelSmall?.copyWith(
+        GestureDetector(
+          onTap: () {
+            if (isExpanded) {
+              _expandedDateGroups.remove(dayKey);
+            } else {
+              _expandedDateGroups.add(dayKey);
+            }
+          },
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            margin: const EdgeInsets.only(top: 4, bottom: 6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: isExpanded ? 0.08 : 0.03),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.calendar_today, size: 13, color: color),
+                    const SizedBox(width: 6),
+                    Text(
+                      dayLabel,
+                      style: theme.textTheme.labelMedium?.copyWith(
                         color: color,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${dayParcels.length}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      isExpanded ? Icons.expand_less : Icons.expand_more,
+                      size: 20,
+                      color: color,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    _miniBadge(
+                      'Paid',
+                      paidCount,
+                      paidAmt.toStringAsFixed(0),
+                      Colors.green,
+                    ),
+                    const SizedBox(width: 12),
+                    _miniBadge(
+                      'Unpaid',
+                      unpaidCount,
+                      unpaidAmt.toStringAsFixed(0),
+                      Colors.red,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
       );
       if (isExpanded) {
-        for (final parcel in dayParcels) {
+        final sorted = [
+          ...dayParcels,
+        ]..sort((a, b) => (b.Document_No ?? '').compareTo(a.Document_No ?? ''));
+        for (final parcel in sorted) {
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -1075,6 +1130,29 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
       }
     }
     return widgets;
+  }
+
+  Widget _miniBadge(String label, int count, String amount, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            '$label $count · $amount',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _showCollectConfirm(BuildContext ctx, Parcel parcel) async {
@@ -1100,6 +1178,18 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                             '${parcel.Document_No ?? ''} - ${parcel.Receiver_Name ?? 'Receiver'}',
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
+                          if ((parcel.Receiver_Code ?? '')
+                              .trim()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Code: ${parcel.Receiver_Code!.trim()}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 16),
                           TextField(
                             controller: phoneCtrl,
@@ -1811,22 +1901,53 @@ class _ReceivedParcelCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header: Doc No | From | Vehicle | Paid badge
           Row(
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-              ),
-              const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  parcel.Document_No ?? '-',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    children: [
+                      TextSpan(text: parcel.Document_No ?? '-'),
+                      if (parcel.From?.trim().isNotEmpty == true) ...[
+                        const TextSpan(
+                          text: ' | ',
+                          style: TextStyle(
+                            color: Colors.black26,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                        TextSpan(
+                          text: parcel.From!,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                      if (parcel.Vehicle?.trim().isNotEmpty == true) ...[
+                        const WidgetSpan(child: SizedBox(width: 6)),
+                        const WidgetSpan(
+                          child: Icon(
+                            Icons.local_shipping,
+                            size: 14,
+                            color: Color(0xFF6f42c1),
+                          ),
+                          alignment: PlaceholderAlignment.middle,
+                        ),
+                        const WidgetSpan(child: SizedBox(width: 3)),
+                        TextSpan(
+                          text: parcel.Vehicle!,
+                          style: const TextStyle(fontWeight: FontWeight.w400),
+                        ),
+                      ],
+                    ],
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -1846,52 +1967,84 @@ class _ReceivedParcelCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          // Sender with amount on right
           Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Receiver: ${parcel.Receiver_Name ?? '-'}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Phone: ${parcel.Receiver_Phone ?? '-'}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.bodySmall,
+                    children: [
+                      const TextSpan(
+                        text: 'Sender: ',
+                        style: TextStyle(color: Colors.black45),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${parcel.From ?? '-'} → ${parcel.To ?? '-'}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
+                      TextSpan(
+                        text: parcel.Sender_Name ?? '-',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                  ],
+                      if (parcel.Sender_Phone?.trim().isNotEmpty == true) ...[
+                        const TextSpan(
+                          text: ' | ',
+                          style: TextStyle(color: Colors.black26),
+                        ),
+                        TextSpan(text: parcel.Sender_Phone!),
+                      ],
+                    ],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    'KES ${(parcel.Amount_Paid ?? 0).toStringAsFixed(0)}',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+              Text(
+                'KES ${(parcel.Amount_Paid ?? 0).toStringAsFixed(0)}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          // Receiver with time on right
+          Row(
+            children: [
+              Expanded(
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.bodySmall,
+                    children: [
+                      const TextSpan(
+                        text: 'Receiver: ',
+                        style: TextStyle(color: Colors.black45),
+                      ),
+                      TextSpan(
+                        text: parcel.Receiver_Name ?? '-',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      if (parcel.Receiver_Phone?.trim().isNotEmpty ==
+                          true) ...[
+                        const TextSpan(
+                          text: ' | ',
+                          style: TextStyle(color: Colors.black26),
+                        ),
+                        TextSpan(text: parcel.Receiver_Phone!),
+                      ],
+                    ],
                   ),
-                  Text(
-                    DateFormat(
-                      'dd MMM',
-                    ).format(parcel.Date_sent ?? DateTime.now()),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.black54,
-                    ),
-                  ),
-                ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                parcel.Time_Created != null
+                    ? DateFormat('HH:mm').format(parcel.Time_Created!)
+                    : (parcel.Date_sent != null
+                        ? DateFormat('HH:mm').format(parcel.Date_sent!)
+                        : '--:--'),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.black54,
+                ),
               ),
             ],
           ),

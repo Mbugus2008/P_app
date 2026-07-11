@@ -207,14 +207,14 @@ class Parcel {
       Date_Created: _parseDate(
         read(['Date_Created', 'date_Created', 'dateCreated']),
       ),
-      Time_Created: _parseDate(
+      Time_Created: _parseTime(
         read(['Time_Created', 'time_Created', 'timeCreated']),
       ),
-      Time_Sent: _parseDate(read(['Time_Sent', 'time_Sent', 'timeSent'])),
-      Time_Collected: _parseDate(
+      Time_Sent: _parseTime(read(['Time_Sent', 'time_Sent', 'timeSent'])),
+      Time_Collected: _parseTime(
         read(['Time_Collected', 'time_Collected', 'timeCollected']),
       ),
-      Time_Delivered: _parseDate(
+      Time_Delivered: _parseTime(
         read(['Time_Delivered', 'time_Delivered', 'timeDelivered']),
       ),
       Notes: read(['Notes', 'notes']) as String?,
@@ -254,7 +254,7 @@ class Parcel {
       Payment_Date: _parseDate(
         read(['Payment_Date', 'payment_Date', 'paymentDate']),
       ),
-      Payment_Time: _parseDate(
+      Payment_Time: _parseTime(
         read(['Payment_Time', 'payment_Time', 'paymentTime']),
       ),
     );
@@ -343,10 +343,10 @@ class Parcel {
       Out_For_Delivery_Time: _parseDate(map['Out_For_Delivery_Time']),
       Date_Returned: _parseDate(map['Date_Returned']),
       Date_Created: _parseDate(map['Date_Created']),
-      Time_Created: _parseDate(map['Time_Created']),
-      Time_Sent: _parseDate(map['Time_Sent']),
-      Time_Collected: _parseDate(map['Time_Collected']),
-      Time_Delivered: _parseDate(map['Time_Delivered']),
+      Time_Created: _parseTime(map['Time_Created']),
+      Time_Sent: _parseTime(map['Time_Sent']),
+      Time_Collected: _parseTime(map['Time_Collected']),
+      Time_Delivered: _parseTime(map['Time_Delivered']),
       Notes: map['Description'] as String?,
       Details: map['Details'] as String?,
       isSynced: (map['Is_Synced'] as int? ?? 0) == 1,
@@ -360,7 +360,7 @@ class Parcel {
       App_Version: map['App_Version'] as String?,
       Parcel_Value: (map['Parcel_Value'] as num?)?.toDouble(),
       Payment_Date: _parseDate(map['Payment_Date']),
-      Payment_Time: _parseDate(map['Payment_Time']),
+      Payment_Time: _parseTime(map['Payment_Time']),
     );
   }
 
@@ -540,6 +540,14 @@ class Parcel {
     if (parsed == null) return null;
     // NAV sends 0001-01-01 as its null date — treat as null
     if (parsed.year <= 1) return null;
+    return parsed;
+  }
+
+  /// Parses time fields from NAV where year=0001 but time is valid (e.g. 0001-01-01T14:30:00)
+  static DateTime? _parseTime(dynamic value) {
+    if (value == null) return null;
+    final parsed = DateTime.tryParse(value.toString());
+    if (parsed == null) return null;
     return parsed;
   }
 

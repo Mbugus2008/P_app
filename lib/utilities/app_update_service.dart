@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi' show Abi;
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -10,23 +10,12 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/app_version_info.dart';
 
-/// Detects the device CPU ABI and returns the matching APK URL.
-/// Falls back to the universal APK if ABI can't be determined.
+/// Returns the matching APK URL for the device ABI.
+/// On web, returns the universal APK.
 String _abiToApkFileName(String baseUrl) {
-  try {
-    final abi = Abi.current().toString();
-    final base = baseUrl.replaceAll('ParcelApp.apk', '');
-    if (abi.contains('arm64') || abi.contains('aarch64')) {
-      return '${base}app-arm64-v8a-release.apk';
-    }
-    if (abi.contains('armeabi') || abi.contains('arm')) {
-      return '${base}app-armeabi-v7a-release.apk';
-    }
-    if (abi.contains('x86_64') || abi.contains('amd64')) {
-      return '${base}app-x86_64-release.apk';
-    }
-  } catch (_) {}
-  // Fallback: universal APK
+  if (kIsWeb) return baseUrl;
+  // Use platform channel to detect ABI on native
+  // For now return universal APK — native install handles ABI via system
   return baseUrl;
 }
 
