@@ -852,13 +852,17 @@ class ParcelController extends GetxController {
         }
       }
 
-      // 2. Mark batch as received only if all parcels processed
-      if (skippedDocs.isEmpty) {
-        batch.status = BatchStatus.received;
-        batch.receivedDateTime = DateTime.now();
-        batch.updatedAt = DateTime.now();
-        batch.isSynced = false;
-        await _dbHelper.updateBatch(batch);
+      // 2. Mark batch as received and dirty so sync pushes it
+      batch.status = BatchStatus.received;
+      batch.receivedDateTime = DateTime.now();
+      batch.updatedAt = DateTime.now();
+      batch.isSynced = false;
+      await _dbHelper.updateBatch(batch);
+      if (skippedDocs.isNotEmpty && kDebugMode) {
+        debugPrint(
+          'Batch ${batch.batchNo} received (${receivedCount} parcels). '
+          'Skipped docs not found: $skippedDocs',
+        );
       }
 
       // 3. Send bulk SMS
@@ -1430,6 +1434,30 @@ class ParcelController extends GetxController {
     }
   }
 
+  /// Removes a parcel's document number from its old batch and deletes the
+  /// batch if it becomes empty.
+  Future<void> _removeParcelFromOldBatch(Parcel parcel) async {
+    final batchNo = (parcel.Batch_No ?? '').trim();
+    if (batchNo.isEmpty) return;
+    final docNo = (parcel.Document_No ?? '').trim();
+    if (docNo.isEmpty) return;
+
+    final batch = await _dbHelper.getBatch(batchNo);
+    if (batch == null || batch.status != BatchStatus.pending) return;
+
+    batch.parcelDocumentNos.remove(docNo);
+    final amount = parcel.Amount_Paid ?? 0;
+    batch.totalAmount = (batch.totalAmount ?? 0) - amount;
+    batch.parcelCount = batch.parcelDocumentNos.length;
+    batch.updatedAt = DateTime.now();
+
+    if (batch.parcelDocumentNos.isEmpty) {
+      await _dbHelper.deleteBatch(batchNo);
+    } else {
+      await _dbHelper.updateBatch(batch);
+    }
+  }
+
   Future<void> _assignOrCreateBatch(Parcel parcel) async {
     final from = parcel.From?.trim() ?? '';
     final to = parcel.To?.trim() ?? '';
@@ -1518,6 +1546,14 @@ class ParcelController extends GetxController {
         parcel.Date_Created ??= existing.Date_Created;
         parcel.Time_Created ??= existing.Time_Created;
         parcel.Created_By ??= existing.Created_By;
+
+        // Reassign batch if the To location changed
+        final oldTo = (existing.To ?? '').trim();
+        final newTo = (parcel.To ?? '').trim();
+        if (oldTo.isNotEmpty && newTo.isNotEmpty && oldTo != newTo) {
+          await _removeParcelFromOldBatch(existing);
+          await _assignOrCreateBatch(parcel);
+        }
       }
       parcel.deviceId ??= await DeviceIdHelper.instance.getDeviceId();
       parcel.App_Version ??= (await PackageInfo.fromPlatform()).version;

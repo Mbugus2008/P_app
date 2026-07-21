@@ -874,6 +874,15 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> deleteBatch(String batchNo) async {
+    final db = await database;
+    return await db.delete(
+      _batchesTableName,
+      where: 'Batch_No = ?',
+      whereArgs: [batchNo],
+    );
+  }
+
   Future<Batches?> getBatch(String batchNo) async {
     final db = await database;
     final rows = await db.query(
