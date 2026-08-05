@@ -1227,19 +1227,6 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                               errorText: errorMsg.isNotEmpty ? errorMsg : null,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                idCtrl.text = parcel.Receiver_ID?.trim() ?? '';
-                                phoneCtrl.text =
-                                    parcel.Receiver_Phone?.trim() ?? '';
-                              },
-                              icon: const Icon(Icons.person_pin, size: 18),
-                              label: const Text('Use Receiver Details'),
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -2022,8 +2009,7 @@ class _ReceivedParcelCard extends StatelessWidget {
                         text: parcel.Receiver_Name ?? '-',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                      if (parcel.Receiver_Phone?.trim().isNotEmpty ==
-                          true) ...[
+                      if (parcel.Receiver_Phone?.trim().isNotEmpty == true) ...[
                         const TextSpan(
                           text: ' | ',
                           style: TextStyle(color: Colors.black26),
