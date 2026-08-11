@@ -16,7 +16,8 @@ import 'package:trimline_parcel/utilities/logger.dart';
 
 class ApiClient extends ChangeNotifier {
   final LoggerService logger = Get.find();
-  String baseUrl = "https://nav.trimline.co.ke:4013/api/Parcel/";
+  // String baseUrl = "https://nav.trimline.co.ke:4013/api/Parcel/"; // LIVE
+  String baseUrl = "http://10.0.2.2:62749/api/Parcel/";
 
   dynamic _readEnvelopeValue(Map<String, dynamic> decoded, String key) {
     if (decoded.containsKey(key)) return decoded[key];
@@ -80,16 +81,17 @@ class ApiClient extends ChangeNotifier {
   }) async {
     http.Response? r = http.Response("", 200);
     try {
-      String urls = '$baseUrl$url';
-      logger.info(urls);
+      final uris = Uri.parse('$baseUrl$url');
+      logger.info('$baseUrl$url');
       logger.info("out: $data");
+      logger.info("headers: $_headers");
       r = await _withRetry(
-        () => http.post(Uri.parse(urls), body: data, headers: _headers),
+        () => http.post(uris, body: data, headers: _headers),
       );
 
       if ((r.statusCode == 307 || r.statusCode == 308) &&
           r.headers['location'] != null) {
-        final redirectUri = Uri.parse(urls).resolve(r.headers['location']!);
+        final redirectUri = uris.resolve(r.headers['location']!);
         logger.info('POST redirect for $url -> $redirectUri');
         r = await http.post(redirectUri, body: data, headers: _headers);
       }
@@ -342,13 +344,16 @@ class ApiClient extends ChangeNotifier {
         .toList();
   }
 
-  /// Sync fetch: (From=loc OR To=loc) AND (Date_sent=today OR Status!=Collected)
-  Future<List<Parcel>> fetchParcelsForSync(String locationCode) async {
-    final payload = jsonEncode({
-      'SyncLocation': locationCode,
-      'PageSize': 0,
-    });
-    final response = await postdata('Parcels', payload);
+  /// Sync fetch: pulls parcels for this location, optionally incremental since last pull.
+  Future<List<Parcel>> fetchParcelsForSync(
+    String locationCode, {
+    DateTime? lastSyncedAt,
+  }) async {
+    final payload = <String, dynamic>{'SyncLocation': locationCode};
+    if (lastSyncedAt != null) {
+      payload['LastSyncedAt'] = lastSyncedAt.toIso8601String();
+    }
+    final response = await postdata('Parcels', jsonEncode(payload));
 
     if (response.statusCode != 200) {
       throw Exception('Failed to sync parcels. HTTP ${response.statusCode}');

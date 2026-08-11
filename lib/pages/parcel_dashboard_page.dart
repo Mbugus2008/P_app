@@ -138,6 +138,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   }
 
   Future<void> _refreshDashboard() async {
+    await _controller.forceFullSync();
     await _controller.loadParcels();
     await _controller.loadPendingBatches();
     await _controller.loadInTransitBatches();

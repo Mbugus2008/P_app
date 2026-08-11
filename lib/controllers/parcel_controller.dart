@@ -351,6 +351,13 @@ class ParcelController extends GetxController {
     _autoSyncTimer = null;
   }
 
+  /// Force a full sync by resetting lastSyncedAt, then run the normal cycle.
+  Future<void> forceFullSync() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('lastSyncedAt');
+    await _runAutoSyncCycle();
+  }
+
   Future<void> _runAutoSyncCycle() async {
     if (_isAutoSyncRunning || _loggedInUser.value == null) return;
 
@@ -452,9 +459,21 @@ class ParcelController extends GetxController {
     }
 
     try {
-      pulledParcels = await _apiClient.fetchParcelsForSync(currentLocationCode);
+      // Incremental sync: only pull parcels updated since last successful sync
+      final prefs = await SharedPreferences.getInstance();
+      final lastSyncedStr = prefs.getString('lastSyncedAt');
+      final lastSyncedAt =
+          lastSyncedStr != null ? DateTime.tryParse(lastSyncedStr) : null;
+
+      pulledParcels = await _apiClient.fetchParcelsForSync(
+        currentLocationCode,
+        lastSyncedAt: lastSyncedAt,
+      );
       parcelsPulled = true;
       summary.pulledParcels = pulledParcels.length;
+
+      // Save sync timestamp after successful pull
+      await prefs.setString('lastSyncedAt', DateTime.now().toIso8601String());
     } catch (e) {
       summary.failedParcels++;
       if (kDebugMode) {
@@ -633,7 +652,6 @@ class ParcelController extends GetxController {
             Driver: batch.driver,
           );
           await _dbHelper.updateParcel(updated);
-
           // Sync parcel to backend: create if not yet synced, otherwise update
           if (updated.isSynced) {
             _apiClient.updateParcel(updated).catchError((e) {
