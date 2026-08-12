@@ -387,6 +387,10 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
           method != PaymentMethod.pending
               ? controller.loggedInUser?.agentCode
               : null;
+      controller.parcel!.Payment_Date =
+          method != PaymentMethod.pending ? DateTime.now() : null;
+      controller.parcel!.Payment_Time =
+          method != PaymentMethod.pending ? DateTime.now() : null;
       // Pay Later → receiver will pay at destination
       if (method == PaymentMethod.pending) {
         controller.parcel!.Who_to_Pay = WhoToPay.Receiver;
@@ -1149,6 +1153,8 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
         Batch_No: existing?.Batch_No,
         Date_Collected: controller.parcel?.Date_Collected,
         Date_Delivered: controller.parcel?.Date_Delivered,
+        Payment_Date: controller.parcel?.Payment_Date,
+        Payment_Time: controller.parcel?.Payment_Time,
         Details: controller.parcel?.Details,
         Parcel_Value: controller.parcel?.Parcel_Value,
         deviceId: controller.parcel?.deviceId ?? existing?.deviceId,

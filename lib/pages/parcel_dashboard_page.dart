@@ -33,6 +33,8 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   final _batchExpanded = ''.obs;
   final _searchQuery = ''.obs;
   final _expandedDateGroups = <String>{}.obs;
+  final _dateGroupPageSize = 50; // parcels to show per date group initially
+  final _dateGroupMaxLoaded = <String, int>{};
   bool _hasAutoExpandedDates = false;
   String _appVersion = '';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -1116,7 +1118,9 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
         final sorted = [
           ...dayParcels,
         ]..sort((a, b) => (b.Document_No ?? '').compareTo(a.Document_No ?? ''));
-        for (final parcel in sorted) {
+        final shown = _dateGroupMaxLoaded[dayKey] ?? _dateGroupPageSize;
+        final visible = sorted.take(shown).toList();
+        for (final parcel in visible) {
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -1124,6 +1128,28 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 parcel: parcel,
                 onPay: () => _controller.payForParcel(context, parcel),
                 onCollect: () => _showCollectConfirm(context, parcel),
+              ),
+            ),
+          );
+        }
+        // "Load more" button when there are more parcels than shown
+        if (shown < sorted.length) {
+          final remaining = sorted.length - shown;
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.expand_more, size: 18),
+                  label: Text('Show $remaining more parcels'),
+                  onPressed: () {
+                    _dateGroupMaxLoaded[dayKey] =
+                        (shown + _dateGroupPageSize).clamp(0, sorted.length);
+                    // Force rebuild
+                    if (mounted) setState(() {});
+                  },
+                ),
               ),
             ),
           );

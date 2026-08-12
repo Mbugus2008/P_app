@@ -1,0 +1,21 @@
+﻿=== 1. SENT row (date filter: Payment_Date ?? Date_sent) ===
+sentTotal = 2
+sentPaid  = 2
+sentCash  = 
+sentMpesa = 300
+
+=== 2. RECEIVED row (date filter: Payment_Date ?? Date_sent) ===
+recvTotal = 38
+recvPaid  = 26
+recvCash  = 150
+recvMpesa = 1450
+
+=== 3. PAID TODAY row (Payment_Date == today, strict) ===
+paidTodayTotal = 16
+paidTodayPaid  = 16
+paidTodayCash  = 150
+paidTodayMpesa = 1900
+
+=== 4. What null Payment_Date hides ===
+To Paid-but-no-date:   633
+From Paid-but-no-date: 78

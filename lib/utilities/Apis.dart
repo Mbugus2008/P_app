@@ -2,8 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:trimline_parcel/models/app_location.dart';
@@ -16,8 +15,11 @@ import 'package:trimline_parcel/utilities/logger.dart';
 
 class ApiClient extends ChangeNotifier {
   final LoggerService logger = Get.find();
-  // String baseUrl = "https://nav.trimline.co.ke:4013/api/Parcel/"; // LIVE
-  String baseUrl = "http://10.0.2.2:62749/api/Parcel/";
+  // Auto-selects LIVE URL in release builds, emulator/localhost in debug.
+  String get baseUrl =>
+      kReleaseMode
+          ? "https://nav.trimline.co.ke:4013/api/Parcel/"
+          : "http://10.0.2.2:62749/api/Parcel/";
 
   dynamic _readEnvelopeValue(Map<String, dynamic> decoded, String key) {
     if (decoded.containsKey(key)) return decoded[key];

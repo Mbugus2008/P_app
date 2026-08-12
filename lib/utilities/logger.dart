@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
@@ -18,7 +19,8 @@ class LoggerService extends GetxService {
     await LogWriter.init();  // Initialize Logs folder
 
     logger = Logger(
-      level: Level.all,// kReleaseMode ? Level.all : Level.debug,
+      // Release: errors only. Debug: everything.
+      level: kReleaseMode ? Level.error : Level.all,
       printer: PrettyPrinter(methodCount: 0),
       output: _DailyFileOutput(),  // Custom output to daily file
     );

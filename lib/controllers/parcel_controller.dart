@@ -103,26 +103,22 @@ class ParcelController extends GetxController {
   /// Parcels originating FROM the current location (outgoing).
   List<Parcel> get parcelsFromLocation {
     final candidates =
-        _locationMatchCandidates().map((l) => l.toLowerCase()).toList();
+        _locationMatchCandidates().map((l) => l.trim().toLowerCase()).toList();
     if (candidates.isEmpty) return <Parcel>[];
     return _parcels.where((p) {
       final from = (p.From ?? '').trim().toLowerCase();
-      return candidates.any(
-        (loc) => from == loc || from.contains(loc) || loc.contains(from),
-      );
+      return candidates.contains(from);
     }).toList();
   }
 
   /// Parcels destined TO the current location (incoming).
   List<Parcel> get parcelsToLocation {
     final candidates =
-        _locationMatchCandidates().map((l) => l.toLowerCase()).toList();
+        _locationMatchCandidates().map((l) => l.trim().toLowerCase()).toList();
     if (candidates.isEmpty) return <Parcel>[];
     return _parcels.where((p) {
       final to = (p.To ?? '').trim().toLowerCase();
-      return candidates.any(
-        (loc) => to == loc || to.contains(loc) || loc.contains(to),
-      );
+      return candidates.contains(to);
     }).toList();
   }
 
@@ -325,21 +321,62 @@ class ParcelController extends GetxController {
   }
 
   Future<void> _initAsync() async {
+    final sw = Stopwatch()..start();
     await loadCurrentLocation();
-    await loadParcels();
-    await loadPendingBatches();
-    await loadInTransitBatches();
-    await loadReceivedParcels();
+    debugPrint('⏱ loadCurrentLocation: ${sw.elapsedMilliseconds}ms');
+
+    // Phase 1: load active parcels first (pending, in-transit, received)
+    // so the dashboard is useful immediately
+    unawaited(_loadActiveParcelsFirst());
+    unawaited(loadPendingBatches());
+    unawaited(loadInTransitBatches());
+    unawaited(loadReceivedParcels());
+
+    // Show dashboard immediately; data will populate as it loads
+    _isLoading.value = false;
 
     if (_loggedInUser.value != null) {
       _startAutoSync();
+    }
+    debugPrint('⏱ _initAsync dashboard ready: ${sw.elapsedMilliseconds}ms');
+  }
+
+  /// Loads active parcels first, then collected in background.
+  Future<void> _loadActiveParcelsFirst() async {
+    final sw = Stopwatch()..start();
+    try {
+      // Phase 1: active parcels (pending, in-transit, received)
+      final active = await _dbHelper.getActiveParcels();
+      debugPrint(
+        '⏱   active parcels: ${sw.elapsedMilliseconds}ms (${active.length} rows)',
+      );
+      _mergeParcels(active);
+
+      // Phase 2: collected parcels in background
+      unawaited(() async {
+        final collected = await _dbHelper.getCollectedParcels();
+        debugPrint(
+          '⏱   collected parcels: ${sw.elapsedMilliseconds}ms (${collected.length} rows)',
+        );
+        _mergeParcels(collected);
+      }());
+    } catch (e) {
+      if (kDebugMode) debugPrint('Error loading active parcels: $e');
+      // Fallback: load all
+      await loadParcels(showLoadingIndicator: false);
     }
   }
 
   void _startAutoSync() {
     _stopAutoSync();
 
-    _autoSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    // Fast sync in debug (10s), relaxed in release (5min) to avoid
+    // hammering the remote API and draining battery on real devices.
+    final interval = kReleaseMode
+        ? const Duration(seconds: 30)
+        : const Duration(seconds: 10);
+
+    _autoSyncTimer = Timer.periodic(interval, (_) {
       unawaited(_runAutoSyncCycle());
     });
 
@@ -460,20 +497,23 @@ class ParcelController extends GetxController {
 
     try {
       // Incremental sync: only pull parcels updated since last successful sync
-      final prefs = await SharedPreferences.getInstance();
-      final lastSyncedStr = prefs.getString('lastSyncedAt');
-      final lastSyncedAt =
-          lastSyncedStr != null ? DateTime.tryParse(lastSyncedStr) : null;
+      final locCode = currentLocationCode.trim();
+      if (locCode.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final lastSyncedStr = prefs.getString('lastSyncedAt');
+        final lastSyncedAt =
+            lastSyncedStr != null ? DateTime.tryParse(lastSyncedStr) : null;
 
-      pulledParcels = await _apiClient.fetchParcelsForSync(
-        currentLocationCode,
-        lastSyncedAt: lastSyncedAt,
-      );
-      parcelsPulled = true;
-      summary.pulledParcels = pulledParcels.length;
+        pulledParcels = await _apiClient.fetchParcelsForSync(
+          locCode,
+          lastSyncedAt: lastSyncedAt,
+        );
+        parcelsPulled = true;
+        summary.pulledParcels = pulledParcels.length;
 
-      // Save sync timestamp after successful pull
-      await prefs.setString('lastSyncedAt', DateTime.now().toIso8601String());
+        // Save sync timestamp after successful pull
+        await prefs.setString('lastSyncedAt', DateTime.now().toIso8601String());
+      }
     } catch (e) {
       summary.failedParcels++;
       if (kDebugMode) {
@@ -514,7 +554,11 @@ class ParcelController extends GetxController {
                   .toList();
       // Fix location names → codes on pulled parcels before saving
       _fixParcelLocations(parcelsToSave);
+      // Protect Payment_Date: BC often returns null, preserve local value
+      await _preservePaymentDates(parcelsToSave);
       await _dbHelper.upsertParcels(parcelsToSave);
+      // Let the UI breathe after a heavy DB write
+      await Future<void>.delayed(Duration.zero);
 
       // NOTE: deleteOrphanParcels is disabled — it can delete valid parcels
       // that are simply not on the current pull page due to pagination or
@@ -544,9 +588,12 @@ class ParcelController extends GetxController {
                   )
                   .toList();
       await _dbHelper.upsertBatches(batchesToSave);
+      await Future<void>.delayed(Duration.zero);
     }
 
     if (summary.hasWork) {
+      // Yield once more before refreshing the UI lists
+      await Future<void>.delayed(Duration.zero);
       await loadParcels(showLoadingIndicator: false);
       await loadPendingBatches();
       await loadInTransitBatches();
@@ -566,6 +613,21 @@ class ParcelController extends GetxController {
       final fromVal = (p.From ?? '').trim();
       if (fromVal.toLowerCase() == locationName.toLowerCase()) {
         p.From = locationCode;
+      }
+    }
+  }
+
+  /// Preserve local Payment_Date when BC returns null.
+  /// BC doesn't consistently store Payment_Date, but the app sets it on payment.
+  Future<void> _preservePaymentDates(List<Parcel> pulledParcels) async {
+    for (final p in pulledParcels) {
+      if (p.Payment_Date != null) continue; // BC has a date, keep it
+      final docNo = (p.Document_No ?? '').trim();
+      if (docNo.isEmpty) continue;
+      final local = await _dbHelper.getParcel(docNo);
+      if (local != null && local.Payment_Date != null) {
+        p.Payment_Date = local.Payment_Date;
+        p.Payment_Time = local.Payment_Time;
       }
     }
   }
@@ -1022,7 +1084,16 @@ class ParcelController extends GetxController {
       Payment_Date: isPayLater ? null : DateTime.now(),
       Payment_Time: isPayLater ? null : DateTime.now(),
     );
+    debugPrint(
+      '💳 payForParcel: Payment_Date=${updated.Payment_Date} Payment_Time=${updated.Payment_Time}',
+    );
     await _dbHelper.updateParcel(updated);
+
+    // Verify the save
+    final verify = await _dbHelper.getParcel(updated.Document_No ?? '');
+    debugPrint(
+      '💳 verify after save: Payment_Date=${verify?.Payment_Date} Payment_Time=${verify?.Payment_Time}',
+    );
 
     try {
       await _apiClient.updateParcel(updated);
@@ -1140,11 +1211,15 @@ class ParcelController extends GetxController {
   }
 
   Future<void> loadParcels({bool showLoadingIndicator = true}) async {
+    final sw = Stopwatch()..start();
     if (showLoadingIndicator) {
       _isLoading.value = true;
     }
     try {
       final items = await _dbHelper.getAllParcels();
+      debugPrint(
+        '⏱   DB getAllParcels: ${sw.elapsedMilliseconds}ms (${items.length} rows)',
+      );
       _mergeParcels(items);
 
       // Auto-attach orphaned pending parcels to batches
@@ -1154,6 +1229,7 @@ class ParcelController extends GetxController {
             (p.Batch_No == null || p.Batch_No!.isEmpty),
       );
       if (orphans.isNotEmpty) {
+        debugPrint('⏱   orphans to fix: ${orphans.length}');
         for (final p in orphans) {
           await _assignOrCreateBatch(p);
           await _dbHelper.updateParcel(p);
@@ -1161,6 +1237,7 @@ class ParcelController extends GetxController {
         final fixed = await _dbHelper.getAllParcels();
         _mergeParcels(fixed);
         await loadPendingBatches();
+        debugPrint('⏱   orphans fixed: ${sw.elapsedMilliseconds}ms');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -1173,6 +1250,7 @@ class ParcelController extends GetxController {
       if (showLoadingIndicator) {
         _isLoading.value = false;
       }
+      debugPrint('⏱   loadParcels TOTAL: ${sw.elapsedMilliseconds}ms');
     }
   }
 

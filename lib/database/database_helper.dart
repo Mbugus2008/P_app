@@ -509,11 +509,56 @@ class DatabaseHelper {
   }
 
   /// Retrieves all parcels from the database.
-  /// Returns a list of Parcels.
+  /// Returns all non-collected parcels + the latest 100 collected to keep
+  /// the dashboard fast even with thousands of historical parcels.
   Future<List<Parcel>> getAllParcels() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(_tableName);
 
+    // All active parcels (not collected) — full set
+    final activeMaps = await db.query(
+      _tableName,
+      where: 'Status != ?',
+      whereArgs: ['collected'],
+    );
+
+    // Latest 100 collected parcels by Document_No descending
+    final collectedMaps = await db.query(
+      _tableName,
+      where: 'Status = ?',
+      whereArgs: ['collected'],
+      orderBy: 'Document_No DESC',
+      limit: 100,
+    );
+
+    final combined = [...activeMaps, ...collectedMaps];
+    return List.generate(combined.length, (i) {
+      return Parcel.fromDbMap(combined[i]);
+    });
+  }
+
+  /// Loads only active parcels (pending, in-transit, received) — excludes collected.
+  Future<List<Parcel>> getActiveParcels() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      _tableName,
+      where: 'Status != ?',
+      whereArgs: ['collected'],
+    );
+    return List.generate(maps.length, (i) {
+      return Parcel.fromDbMap(maps[i]);
+    });
+  }
+
+  /// Loads only collected (archived) parcels — limited to latest 100.
+  Future<List<Parcel>> getCollectedParcels() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      _tableName,
+      where: 'Status = ?',
+      whereArgs: ['collected'],
+      orderBy: 'Document_No DESC',
+      limit: 100,
+    );
     return List.generate(maps.length, (i) {
       return Parcel.fromDbMap(maps[i]);
     });
@@ -647,19 +692,29 @@ class DatabaseHelper {
   Future<void> upsertParcels(List<Parcel> parcels) async {
     if (parcels.isEmpty) return;
 
+    const chunkSize = 300;
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final parcel in parcels) {
-        if ((parcel.Document_No ?? '').trim().isEmpty) continue;
-        batch.insert(
-          _tableName,
-          parcel.toDbMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      await batch.commit(noResult: true);
-    });
+
+    for (var i = 0; i < parcels.length; i += chunkSize) {
+      final end = (i + chunkSize).clamp(0, parcels.length);
+      final chunk = parcels.sublist(i, end);
+
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final parcel in chunk) {
+          if ((parcel.Document_No ?? '').trim().isEmpty) continue;
+          batch.insert(
+            _tableName,
+            parcel.toDbMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+      });
+
+      // Yield to the UI event loop between chunks so frames don't drop
+      await Future<void>.delayed(Duration.zero);
+    }
   }
 
   Future<void> replaceUsers(List<AppUser> users) async {

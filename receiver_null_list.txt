@@ -1,0 +1,127 @@
+Count: 21
+---
+DocNo: GRA0811026
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 100
+Date_sent: 08/11/2026 00:00:00  Date_Collected: 08/11/2026 00:00:00  Date_Delivered: 08/11/2026 00:00:00
+appVer: 1.0.32  Created_By: NICHOLAS
+---
+DocNo: GRA0810043
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 08/10/2026 00:00:00  Date_Collected: 08/10/2026 00:00:00  Date_Delivered: 08/10/2026 00:00:00
+appVer: 1.0.32  Created_By: NICHOLAS
+---
+DocNo: GRA0810041
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 150
+Date_sent: 08/10/2026 00:00:00  Date_Collected: 08/11/2026 00:00:00  Date_Delivered: 08/10/2026 00:00:00
+appVer: 1.0.32  Created_By: NICHOLAS
+---
+DocNo: GRA0807026
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 200
+Date_sent: 08/07/2026 00:00:00  Date_Collected: 08/07/2026 00:00:00  Date_Delivered: 08/07/2026 00:00:00
+appVer: 1.0.32  Created_By: NICHOLAS
+---
+DocNo: GRA0806025
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 100
+Date_sent: 08/06/2026 00:00:00  Date_Collected: 08/06/2026 00:00:00  Date_Delivered: 08/06/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0804018
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 150
+Date_sent: 08/04/2026 00:00:00  Date_Collected: 08/04/2026 00:00:00  Date_Delivered: 08/04/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0803014
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 150
+Date_sent: 08/03/2026 00:00:00  Date_Collected: 08/03/2026 00:00:00  Date_Delivered: 08/03/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0803009
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 08/03/2026 00:00:00  Date_Collected: 08/03/2026 00:00:00  Date_Delivered: 08/03/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0727015
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 07/27/2026 00:00:00  Date_Collected: 07/27/2026 00:00:00  Date_Delivered: 07/27/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0722035
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 07/22/2026 00:00:00  Date_Collected: 07/27/2026 00:00:00  Date_Delivered: 07/22/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0722009
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 150
+Date_sent: 07/22/2026 00:00:00  Date_Collected: 07/22/2026 00:00:00  Date_Delivered: 07/22/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0715020
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 07/15/2026 00:00:00  Date_Collected: 07/15/2026 00:00:00  Date_Delivered: 07/15/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0710015
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 07/10/2026 00:00:00  Date_Collected: 07/10/2026 00:00:00  Date_Delivered: 07/10/2026 00:00:00
+appVer: 1.0.31  Created_By: NICHOLAS
+---
+DocNo: GRA0704011
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 100
+Date_sent: 07/04/2026 00:00:00  Date_Collected: 07/04/2026 00:00:00  Date_Delivered: 07/04/2026 00:00:00
+appVer: 1.0.29  Created_By: NICHOLAS
+---
+DocNo: GRA0703037
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 150
+Date_sent: 07/03/2026 00:00:00  Date_Collected: 07/03/2026 00:00:00  Date_Delivered: 07/03/2026 00:00:00
+appVer: 1.0.29  Created_By: NICHOLAS
+---
+DocNo: GTW0703003
+From: GTWLL ATHI -> To: GRATEWALL
+Status: Collected  Method: MPesa  Amount: 100
+Date_sent: 07/03/2026 00:00:00  Date_Collected: 07/03/2026 00:00:00  Date_Delivered: 07/03/2026 00:00:00
+appVer: 1.0.29  Created_By: MOSES
+---
+DocNo: GRA0703009
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: Cash  Amount: 100
+Date_sent: 07/03/2026 00:00:00  Date_Collected: 07/03/2026 00:00:00  Date_Delivered: 07/03/2026 00:00:00
+appVer: 1.0.29  Created_By: NICHOLAS
+---
+DocNo: GRA0701007
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Method: MPesa  Amount: 100
+Date_sent: 07/01/2026 00:00:00  Date_Collected: 07/01/2026 00:00:00  Date_Delivered: 07/01/2026 00:00:00
+appVer: 1.0.28  Created_By: NICHOLAS
+---
+DocNo: GTW0622011
+From: GTWLL ATHI -> To: GRATEWALL
+Status: Collected  Method: Pending  Amount: 500
+Date_sent: 06/22/2026 00:00:00  Date_Collected: 06/24/2026 00:00:00  Date_Delivered: 06/23/2026 00:00:00
+appVer: 1.0.14  Created_By: MOSES
+---
+DocNo: GTW0623003
+From: GTWLL ATHI -> To: GRATEWALL
+Status: Collected  Method: Cash  Amount: 200
+Date_sent: 06/23/2026 00:00:00  Date_Collected: 06/23/2026 00:00:00  Date_Delivered: 06/23/2026 00:00:00
+appVer: 1.0.14  Created_By: MOSES
+---
+DocNo: GTW0623001
+From: GTWLL ATHI -> To: GRATEWALL
+Status: Collected  Method: MPesa  Amount: 300
+Date_sent: 06/23/2026 00:00:00  Date_Collected: 06/23/2026 00:00:00  Date_Delivered: 06/23/2026 00:00:00
+appVer: 1.0.14  Created_By: MOSES

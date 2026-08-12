@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -7,7 +6,6 @@ import '../controllers/parcel_controller.dart';
 import '../dialogs/printer_selector_dialog.dart';
 import '../models/parcel_model.dart';
 import '../receipts/thermal_receipt_printer.dart';
-import '../utilities/Apis.dart';
 import '../utilities/status_color.dart';
 
 class LocationParcelsPage extends StatefulWidget {
@@ -33,40 +31,6 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   PaymentMethod? _toPaymentFilter;
 
   final Set<String> _expandedGroups = {};
-  List<Parcel>? _liveFromParcels;
-  List<Parcel>? _liveToParcels;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchLiveFromBc());
-  }
-
-  Future<void> _fetchLiveFromBc() async {
-    try {
-      final api = ApiClient();
-      final loc = _controller.currentLocation;
-      final results = await Future.wait([
-        api.fetchParcelsByLocation(
-          fromLocation: loc,
-          dateFrom: _fromDate,
-          dateTo: _toDate,
-        ),
-        api.fetchParcelsByLocation(
-          toLocation: loc,
-        ), // no date filter — need all To parcels for Paid Today
-      ]);
-      if (mounted) {
-        setState(() {
-          _liveFromParcels = results[0];
-          _liveToParcels = results[1];
-        });
-      }
-    } catch (e) {
-      // Live fetch failed — fall back to local DB silently
-      if (kDebugMode) debugPrint('Live fetch failed: $e');
-    }
-  }
 
   @override
   void dispose() {
@@ -76,6 +40,18 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   }
 
   List<Parcel> _applyDateFilter(List<Parcel> parcels) {
+    final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
+    final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
+    return parcels.where((p) {
+      final d =
+          p.Payment_Date ?? p.Date_sent ?? p.Date_Created ?? DateTime.now();
+      return !d.isBefore(from) && !d.isAfter(to);
+    }).toList();
+  }
+
+  /// Filters by Date_sent / Date_Created (ignoring Payment_Date).
+  /// Used for parcel count totals — "how many were dispatched/received in range".
+  List<Parcel> _filterBySentDate(List<Parcel> parcels) {
     final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
     final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
     return parcels.where((p) {
@@ -144,7 +120,6 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         _fromDate = range.start;
         _toDate = range.end;
       });
-      _fetchLiveFromBc();
     }
   }
 
@@ -189,9 +164,9 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
               child: CircularProgressIndicator(color: Colors.white),
             );
 
-          // Use live BC data if available, otherwise local DB
-          final fromLoc = _liveFromParcels ?? _controller.parcelsFromLocation;
-          final toLoc = _liveToParcels ?? _controller.parcelsToLocation;
+          // Use local DB data
+          final fromLoc = _controller.parcelsFromLocation;
+          final toLoc = _controller.parcelsToLocation;
 
           final fromRaw = _applyDateFilter(fromLoc);
           final toRaw = _applyDateFilter(toLoc);
@@ -220,6 +195,8 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
                   toParcels,
                   location,
                   allToParcels: toLoc,
+                  fromLoc: fromLoc,
+                  toLocRaw: toLoc,
                 ),
                 const SizedBox(height: 6),
                 Expanded(
@@ -271,13 +248,20 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
     List<Parcel> toParcels,
     String location, {
     List<Parcel>? allToParcels,
+    List<Parcel>? fromLoc,
+    List<Parcel>? toLocRaw,
   }) {
     final dateStr =
         '${DateFormat('dd/MM/yy').format(_fromDate)} .. ${DateFormat('dd/MM/yy').format(_toDate)}';
 
     // --- Sent ---
+    // Totals (counts + amounts) all use Payment_Date filter — what was paid in range
     final sentTotal = fromParcels.length;
     final sentPaid = fromParcels.where((p) => p.Paid == true).length;
+    // Count by Date_sent separately — how many were dispatched in range
+    final sentByDate = _filterBySentDate(fromLoc ?? fromParcels);
+    final sentDispatched = sentByDate.length;
+
     final sentCash = fromParcels
         .where(
           (p) =>
@@ -294,8 +278,12 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
 
     // --- Received ---
+    // Totals (counts + amounts) all use Payment_Date filter — what was paid in range
     final recvTotal = toParcels.length;
     final recvPaid = toParcels.where((p) => p.Paid == true).length;
+    // Count by Date_sent separately — how many were received in range
+    final recvByDate = _filterBySentDate(toLocRaw ?? toParcels);
+    final recvReceived = recvByDate.length;
     final recvCash = toParcels
         .where(
           (p) =>
@@ -311,40 +299,24 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         )
         .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
 
-    // --- Paid Today (Payment_Date within range, Date_sent outside, To this location) ---
-    // Use allToParcels (live BC) if available, otherwise fall back to local DB
-    final paidTodaySource = allToParcels ?? _controller.parcels;
-    final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
-    final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
-    bool _inDateRange(DateTime? d) =>
-        d != null && !d.isBefore(from) && !d.isAfter(to);
+    // --- Paid Today (Payment_Date == today, To this location) ---
+    // Uses toLocRaw (all TO parcels) as source; ignores the selected range.
+    final paidTodaySource = toLocRaw ?? _controller.parcelsToLocation;
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    bool _isToday(DateTime? d) =>
+        d != null && !d.isBefore(todayStart) && !d.isAfter(todayEnd);
+
+    final locCode = _controller.currentLocationCode.toLowerCase().trim();
     final paidTodayAll =
         paidTodaySource.where((p) {
-          // Must be destined TO this location (payment collected here)
-          final to = (p.To ?? '').trim().toLowerCase();
-          final locLower = location.toLowerCase().trim();
-          final codeLower =
-              _controller.currentLocationCode.toLowerCase().trim();
-          final nameLower =
-              _controller.currentLocationName.toLowerCase().trim();
-          final matches =
-              to == locLower ||
-              to == codeLower ||
-              to == nameLower ||
-              to.contains(locLower) ||
-              locLower.contains(to) ||
-              to.contains(codeLower) ||
-              codeLower.contains(to) ||
-              to.contains(nameLower) ||
-              nameLower.contains(to);
-          if (!matches) return false;
-          // Payment date must be within range
-          if (!_inDateRange(p.Payment_Date)) return false;
-          // Send date must be OUTSIDE range (sent on a previous day)
-          final sent = p.Date_sent ?? p.Date_Created;
-          if (sent != null && _inDateRange(sent)) return false;
+          final pTo = (p.To ?? '').trim().toLowerCase();
+          if (pTo != locCode) return false;
+          if (!_isToday(p.Payment_Date)) return false;
           return true;
         }).toList();
+
     final paidTodayPaidList =
         paidTodayAll.where((p) => p.Paid == true).toList();
     final paidTodayTotal = paidTodayAll.length;

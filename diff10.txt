@@ -1,0 +1,71 @@
+Count: 10
+---
+DocNo: GRA0812025
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Waiting_Collection  Paid: True  Method: Cash
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812024
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 08/12/2026 00:00:00
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812019
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Waiting_Collection  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 
+Amount: 150  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812018
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Waiting_Collection  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812012
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 08/12/2026 00:00:00
+Amount: 150  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812010
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Waiting_Collection  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812008
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Waiting_Collection  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812004
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Paid: True  Method: Cash
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 08/12/2026 00:00:00
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812003
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Paid: True  Method: MPesa
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 08/12/2026 00:00:00
+Amount: 100  Who_to_Pay: Sender  appVer: 1.0.32
+---
+DocNo: GRA0812002
+From: GRATEWALL -> To: GTWLL ATHI
+Status: Collected  Paid: True  Method: Cash
+Payment_Date: 
+Date_sent: 08/12/2026 00:00:00  Date_Collected: 08/12/2026 00:00:00
+Amount: 150  Who_to_Pay: Sender  appVer: 1.0.32

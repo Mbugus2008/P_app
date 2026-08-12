@@ -1,0 +1,17 @@
+=== ALL paid-null-date by Who_to_Pay (whole dataset, 1870) ===
+Sender: 690
+Receiver: 21
+
+=== To == GTWLL ATHI paid-null-date by Who_to_Pay ===
+Sender: 616
+Receiver: 17
+
+=== From == GTWLL ATHI paid-null-date by Who_to_Pay ===
+Sender: 74
+Receiver: 4
+
+=== Receiver paid-null-date: status breakdown (To) ===
+Collected: 17
+
+=== Receiver paid-null-date: have Date_Collected? (To) ===
+Total: 17, With Date_Collected: 17
