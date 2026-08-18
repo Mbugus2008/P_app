@@ -564,6 +564,95 @@ class DatabaseHelper {
     });
   }
 
+  /// Location report: parcels FROM any of [locations] with Date_sent in
+  /// [from, to] (dispatch semantics — what was sent during the period).
+  /// Reads the full table — not affected by the in-memory 100-collected cap.
+  Future<List<Parcel>> getParcelsFromLocationsInRange(
+    List<String> locations, {
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (locations.isEmpty) return <Parcel>[];
+    final db = await database;
+    final placeholders = List.filled(locations.length, '?').join(',');
+    final maps = await db.rawQuery(
+      '''
+      SELECT * FROM $_tableName
+      WHERE From_Location IN ($placeholders)
+        AND Date_sent >= ?
+        AND Date_sent <= ?
+      ''',
+      [...locations, from.toIso8601String(), to.toIso8601String()],
+    );
+    return maps.map(Parcel.fromDbMap).toList();
+  }
+
+  /// Location report (Received row): parcels TO any of [locations] whose
+  /// effective date (Payment_Date ?? Date_sent ?? Date_Created) falls in
+  /// [from, to] AND which were sent no earlier than [from]. Parcels sent
+  /// earlier but paid within the period belong to the Paid Today row
+  /// (getParcelsPaidBetweenForLocation) and are excluded here.
+  Future<List<Parcel>> getParcelsToLocationsInRange(
+    List<String> locations, {
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    if (locations.isEmpty) return <Parcel>[];
+    final db = await database;
+    final placeholders = List.filled(locations.length, '?').join(',');
+    final maps = await db.rawQuery(
+      '''
+      SELECT * FROM $_tableName
+      WHERE To_Location IN ($placeholders)
+        AND COALESCE(NULLIF(TRIM(Payment_Date),''), Date_sent, NULLIF(TRIM(Date_Created),'')) >= ?
+        AND COALESCE(NULLIF(TRIM(Payment_Date),''), Date_sent, NULLIF(TRIM(Date_Created),'')) <= ?
+        AND COALESCE(NULLIF(TRIM(Date_sent),''), NULLIF(TRIM(Date_Created),'')) >= ?
+      ''',
+      [
+        ...locations,
+        from.toIso8601String(),
+        to.toIso8601String(),
+        from.toIso8601String(),
+      ],
+    );
+    return maps.map(Parcel.fromDbMap).toList();
+  }
+
+  /// Location report (Paid Today row): parcels TO any of [locations] with a
+  /// strict Payment_Date in [from, to] AND sent strictly before [sentBefore]
+  /// AND paid by the receiver (Who_to_Pay = Receiver) — money collected from
+  /// the receiver at this location during the period.
+  Future<List<Parcel>> getParcelsPaidBetweenForLocation(
+    List<String> locations, {
+    required DateTime from,
+    required DateTime to,
+    required DateTime sentBefore,
+  }) async {
+    if (locations.isEmpty) return <Parcel>[];
+    final db = await database;
+    final placeholders = List.filled(locations.length, '?').join(',');
+    final maps = await db.rawQuery(
+      '''
+      SELECT * FROM $_tableName
+      WHERE To_Location IN ($placeholders)
+        AND Payment_Date IS NOT NULL
+        AND TRIM(Payment_Date) != ''
+        AND Payment_Date >= ?
+        AND Payment_Date <= ?
+        AND Date_sent < ?
+        AND WhoToPay = 'Receiver'
+      ''',
+      [
+        ...locations,
+        from.toIso8601String(),
+        to.toIso8601String(),
+        sentBefore.toIso8601String(),
+      ],
+    );
+    return maps.map(Parcel.fromDbMap).toList();
+  }
+
+
   /// Returns all parcel Document_Nos referenced in any batch.
   Future<Set<String>> getAllBatchParcelDocNos() async {
     final db = await database;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
@@ -12,6 +13,24 @@ import '../models/parcel_model.dart';
 import '../utils/app_colors.dart';
 
 typedef PaymentResponsibility = WhoToPay;
+
+/// Capitalizes the first letter of every word as the user types.
+class _CapitalizeWordsFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    if (text.isEmpty) return newValue;
+    final capitalized = text
+        .split(' ')
+        .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+        .join(' ');
+    if (capitalized == text) return newValue;
+    return newValue.copyWith(text: capitalized);
+  }
+}
 
 class AddEditParcelPage extends StatefulWidget {
   final Parcel? parcel;
@@ -391,11 +410,16 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
           method != PaymentMethod.pending ? DateTime.now() : null;
       controller.parcel!.Payment_Time =
           method != PaymentMethod.pending ? DateTime.now() : null;
-      // Pay Later → receiver will pay at destination
-      if (method == PaymentMethod.pending) {
-        controller.parcel!.Who_to_Pay = WhoToPay.Receiver;
-        controller.paymentResponsibility = WhoToPay.Receiver;
-      }
+    }
+
+    // Pay Later → receiver will pay at destination.
+    // Any other method resets the payment responsibility back to the sender.
+    if (method == PaymentMethod.pending) {
+      controller.parcel?.Who_to_Pay = WhoToPay.Receiver;
+      controller.paymentResponsibility = WhoToPay.Receiver;
+    } else {
+      controller.parcel?.Who_to_Pay = WhoToPay.Sender;
+      controller.paymentResponsibility = WhoToPay.Sender;
     }
 
     // Persist payment for both cash and M-Pesa before showing receipt flow.
@@ -614,6 +638,26 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     );
   }
 
+  /// Validates a Kenyan phone number.
+  /// Accepts: 07XXXXXXXX / 01XXXXXXXX (10 digits), 254XXXXXXXX (12 digits),
+  /// or +254... with optional spaces/dashes. Returns an error message or null.
+  String? _validatePhone(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return '$label Phone is required';
+    }
+    var v = value.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+    if (v.startsWith('+')) {
+      v = v.substring(1);
+    }
+    if (v.startsWith('254')) {
+      v = '0${v.substring(3)}';
+    }
+    if (v.length != 10 || !RegExp(r'^0[17]\d{8}$').hasMatch(v)) {
+      return 'Enter a valid $label phone (07XXXXXXXX)';
+    }
+    return null;
+  }
+
   Widget _buildSenderSection(BuildContext context) {
     return _buildSectionCard(
       context,
@@ -634,15 +678,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 _senderNameFocusNode,
                 controller.senderNameController,
               ),
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'Sender Phone is required';
-            }
-            if (value.trim().length < 9) {
-              return 'Minimum 9 characters';
-            }
-            return null;
-          },
+          validator: (value) => _validatePhone(value, 'Sender'),
         ),
         const SizedBox(height: 16),
         Row(
@@ -654,6 +690,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 focusNode: _senderNameFocusNode,
                 label: 'Sender Name',
                 prefixIcon: Icons.person,
+                capitalizeWords: true,
                 textInputAction: TextInputAction.next,
                 onSubmitted:
                     () =>
@@ -715,15 +752,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 _receiverNameFocusNode,
                 controller.receiverNameController,
               ),
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'Receiver Phone is required';
-            }
-            if (value.trim().length < 9) {
-              return 'Minimum 9 characters';
-            }
-            return null;
-          },
+          validator: (value) => _validatePhone(value, 'Receiver'),
         ),
         const SizedBox(height: 16),
         Row(
@@ -735,6 +764,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
                 focusNode: _receiverNameFocusNode,
                 label: 'Receiver Name',
                 prefixIcon: Icons.person_outline,
+                capitalizeWords: true,
                 textInputAction:
                     _showReceiverId
                         ? TextInputAction.next
@@ -931,6 +961,7 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     bool isRequired = false,
     TextInputType keyboardType = TextInputType.text,
     bool readOnly = false,
+    bool capitalizeWords = false,
     InputDecoration? decoration,
     IconData? prefixIcon,
     String? Function(String?)? validator,
@@ -943,6 +974,12 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       keyboardType: keyboardType,
       readOnly: readOnly,
       textInputAction: textInputAction,
+      textCapitalization: capitalizeWords
+          ? TextCapitalization.words
+          : TextCapitalization.none,
+      inputFormatters: capitalizeWords
+          ? [_CapitalizeWordsFormatter()]
+          : null,
       onFieldSubmitted: onSubmitted != null ? (_) => onSubmitted() : null,
       decoration: (decoration ?? const InputDecoration()).copyWith(
         labelText: label,

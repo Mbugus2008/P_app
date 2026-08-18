@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
 import '../controllers/parcel_controller.dart';
+import '../database/database_helper.dart';
 import '../dialogs/printer_selector_dialog.dart';
 import '../models/parcel_model.dart';
 import '../receipts/thermal_receipt_printer.dart';
@@ -31,33 +32,65 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   PaymentMethod? _toPaymentFilter;
 
   final Set<String> _expandedGroups = {};
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+
+  // DB-backed data (full table — not affected by in-memory 100-collected cap)
+  List<Parcel> _dbFromLoc = <Parcel>[];
+  List<Parcel> _dbToLoc = <Parcel>[];
+  List<Parcel> _dbPaidToday = <Parcel>[];
+  bool _loadingData = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  /// Loads Sent/Received/PaidToday straight from SQLite with date filters.
+  Future<void> _loadData() async {
+    if (_loadingData) return;
+    _loadingData = true;
+    try {
+      final candidates = <String>{
+        _controller.currentLocation.trim(),
+        _controller.currentLocationCode.trim(),
+        _controller.currentLocationName.trim(),
+      }.where((s) => s.isNotEmpty).toList();
+
+      final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
+      final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
+
+      final results = await Future.wait([
+        _dbHelper.getParcelsFromLocationsInRange(
+          candidates,
+          from: from,
+          to: to,
+        ),
+        _dbHelper.getParcelsToLocationsInRange(candidates, from: from, to: to),
+        _dbHelper.getParcelsPaidBetweenForLocation(
+          candidates,
+          from: from,
+          to: to,
+          sentBefore: from,
+        ),
+      ]);
+
+      if (!mounted) return;
+      setState(() {
+        _dbFromLoc = results[0];
+        _dbToLoc = results[1];
+        _dbPaidToday = results[2];
+      });
+    } finally {
+      _loadingData = false;
+    }
+  }
 
   @override
   void dispose() {
     _fromScrollCtrl.dispose();
     _toScrollCtrl.dispose();
     super.dispose();
-  }
-
-  List<Parcel> _applyDateFilter(List<Parcel> parcels) {
-    final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
-    final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
-    return parcels.where((p) {
-      final d =
-          p.Payment_Date ?? p.Date_sent ?? p.Date_Created ?? DateTime.now();
-      return !d.isBefore(from) && !d.isAfter(to);
-    }).toList();
-  }
-
-  /// Filters by Date_sent / Date_Created (ignoring Payment_Date).
-  /// Used for parcel count totals — "how many were dispatched/received in range".
-  List<Parcel> _filterBySentDate(List<Parcel> parcels) {
-    final from = DateTime(_fromDate.year, _fromDate.month, _fromDate.day);
-    final to = DateTime(_toDate.year, _toDate.month, _toDate.day, 23, 59, 59);
-    return parcels.where((p) {
-      final d = p.Date_sent ?? p.Date_Created ?? DateTime.now();
-      return !d.isBefore(from) && !d.isAfter(to);
-    }).toList();
   }
 
   List<Parcel> _applyChipFilters(
@@ -120,6 +153,7 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         _fromDate = range.start;
         _toDate = range.end;
       });
+      _loadData();
     }
   }
 
@@ -164,20 +198,18 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
               child: CircularProgressIndicator(color: Colors.white),
             );
 
-          // Use local DB data
-          final fromLoc = _controller.parcelsFromLocation;
-          final toLoc = _controller.parcelsToLocation;
+          // DB-backed data, already date-filtered by the queries above
+          final fromLoc = _dbFromLoc;
+          final toLoc = _dbToLoc;
 
-          final fromRaw = _applyDateFilter(fromLoc);
-          final toRaw = _applyDateFilter(toLoc);
           final fromParcels = _applyChipFilters(
-            fromRaw,
+            fromLoc,
             status: _fromStatusFilter,
             paid: _fromPaidFilter,
             method: _fromPaymentFilter,
           );
           final toParcels = _applyChipFilters(
-            toRaw,
+            toLoc,
             status: _toStatusFilter,
             paid: _toPaidFilter,
             method: _toPaymentFilter,
@@ -186,7 +218,7 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
           final toDateGrouped = _groupByDate(toParcels);
 
           return RefreshIndicator(
-            onRefresh: () async => setState(() {}),
+            onRefresh: _loadData,
             child: Column(
               children: [
                 SizedBox(height: MediaQuery.of(context).padding.top + 80),
@@ -194,9 +226,7 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
                   fromParcels,
                   toParcels,
                   location,
-                  allToParcels: toLoc,
-                  fromLoc: fromLoc,
-                  toLocRaw: toLoc,
+                  _dbPaidToday,
                 ),
                 const SizedBox(height: 6),
                 Expanded(
@@ -246,21 +276,15 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   Widget _buildTopSummary(
     List<Parcel> fromParcels,
     List<Parcel> toParcels,
-    String location, {
-    List<Parcel>? allToParcels,
-    List<Parcel>? fromLoc,
-    List<Parcel>? toLocRaw,
-  }) {
+    String location,
+    List<Parcel> paidTodayList,
+  ) {
     final dateStr =
         '${DateFormat('dd/MM/yy').format(_fromDate)} .. ${DateFormat('dd/MM/yy').format(_toDate)}';
 
     // --- Sent ---
-    // Totals (counts + amounts) all use Payment_Date filter — what was paid in range
     final sentTotal = fromParcels.length;
     final sentPaid = fromParcels.where((p) => p.Paid == true).length;
-    // Count by Date_sent separately — how many were dispatched in range
-    final sentByDate = _filterBySentDate(fromLoc ?? fromParcels);
-    final sentDispatched = sentByDate.length;
 
     final sentCash = fromParcels
         .where(
@@ -278,12 +302,8 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
 
     // --- Received ---
-    // Totals (counts + amounts) all use Payment_Date filter — what was paid in range
     final recvTotal = toParcels.length;
     final recvPaid = toParcels.where((p) => p.Paid == true).length;
-    // Count by Date_sent separately — how many were received in range
-    final recvByDate = _filterBySentDate(toLocRaw ?? toParcels);
-    final recvReceived = recvByDate.length;
     final recvCash = toParcels
         .where(
           (p) =>
@@ -299,24 +319,10 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
         )
         .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
 
-    // --- Paid Today (Payment_Date == today, To this location) ---
-    // Uses toLocRaw (all TO parcels) as source; ignores the selected range.
-    final paidTodaySource = toLocRaw ?? _controller.parcelsToLocation;
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final todayEnd = DateTime(now.year, now.month, now.day, 23, 59, 59);
-    bool _isToday(DateTime? d) =>
-        d != null && !d.isBefore(todayStart) && !d.isAfter(todayEnd);
-
-    final locCode = _controller.currentLocationCode.toLowerCase().trim();
-    final paidTodayAll =
-        paidTodaySource.where((p) {
-          final pTo = (p.To ?? '').trim().toLowerCase();
-          if (pTo != locCode) return false;
-          if (!_isToday(p.Payment_Date)) return false;
-          return true;
-        }).toList();
-
+    // --- Paid Today ---
+    // Sourced from DB query: To == location AND Who_to_Pay == Receiver AND
+    // Payment_Date within the selected range AND sent before the selected day.
+    final paidTodayAll = paidTodayList;
     final paidTodayPaidList =
         paidTodayAll.where((p) => p.Paid == true).toList();
     final paidTodayTotal = paidTodayAll.length;

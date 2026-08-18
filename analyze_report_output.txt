@@ -11,11 +11,11 @@ recvCash  = 150
 recvMpesa = 1450
 
 === 3. PAID TODAY row (Payment_Date == today, strict) ===
-paidTodayTotal = 16
-paidTodayPaid  = 16
-paidTodayCash  = 150
-paidTodayMpesa = 1900
+paidTodayTotal = 26
+paidTodayPaid  = 26
+paidTodayCash  = 500
+paidTodayMpesa = 2700
 
 === 4. What null Payment_Date hides ===
-To Paid-but-no-date:   633
-From Paid-but-no-date: 78
+To Paid-but-no-date:   0
+From Paid-but-no-date: 0

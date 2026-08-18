@@ -1,0 +1,11 @@
+Day: 2026-08-13
+Locations: 5
+
+LOCATION: KITENGELA
+  Sent      : total=1 paid=1 cash=100 mpesa=
+  Received  : total=4 paid=0 cash= mpesa=
+  PaidToday : total=3 paid=3 cash= mpesa=450
+LOCATION: ST PAUL
+  Sent      : total=4 paid=0 cash= mpesa=
+  Received  : total=1 paid=1 cash= mpesa=
+  PaidToday : total=0 paid=0 cash= mpesa=
