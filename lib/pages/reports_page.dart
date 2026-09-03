@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../controllers/parcel_controller.dart';
 import '../database/database_helper.dart';
 import '../dialogs/printer_selector_dialog.dart';
+import '../pages/change_password_page.dart';
 import '../receipts/thermal_receipt_printer.dart';
 import '../utils/app_colors.dart';
 
@@ -1069,6 +1070,15 @@ class _ReportsPageState extends State<ReportsPage> {
                 },
               );
             }),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Change Password'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Get.to(() => const ChangePasswordPage());
+              },
+            ),
           ],
         ),
       ),

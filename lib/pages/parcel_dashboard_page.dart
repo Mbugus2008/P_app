@@ -11,6 +11,7 @@ import '../models/batches.dart';
 import '../models/parcel_model.dart';
 import '../pages/add_user_page.dart';
 import '../pages/addeditparcel.dart';
+import '../pages/change_password_page.dart';
 import '../pages/location_parcels_page.dart';
 import '../pages/login.dart';
 import '../pages/reports_page.dart';
@@ -228,6 +229,14 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                 onTap: () {
                   Navigator.of(context).pop();
                   Get.to(() => const SettingsPage());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Change Password'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Get.to(() => const ChangePasswordPage());
                 },
               ),
               ListTile(

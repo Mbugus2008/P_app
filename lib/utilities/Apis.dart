@@ -509,10 +509,12 @@ class ApiClient extends ChangeNotifier {
   Future<void> changeUserPassword({
     required String agentCode,
     required String password,
+    String? oldPassword,
   }) async {
     final payload = jsonEncode({
       'AgentCode': agentCode.trim(),
       'Password': password.trim(),
+      'OldPassword': oldPassword?.trim() ?? '',
     });
 
     final response = await postdata('nav/users/change-password', payload);
