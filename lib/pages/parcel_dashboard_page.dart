@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -43,6 +45,13 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
   final Map<String, GlobalKey> _sectionKeys = {};
   final DatabaseHelper _dbHelper = DatabaseHelper();
 
+  // Today's money taken at this location (sent + received + paid-today),
+  // shown as chips in the Summary header.
+  double _todayCash = 0;
+  double _todayMpesa = 0;
+  bool _loadingTodayTotals = false;
+  Timer? _todayTotalsTimer;
+
   late final AppUpdateService _updateService;
 
   @override
@@ -50,6 +59,11 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     super.initState();
     _updateService = Get.find<AppUpdateService>();
     _loadAppVersion();
+    _loadTodayTotals();
+    _todayTotalsTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _loadTodayTotals(),
+    );
 
     // Listen for when the download finishes — auto-install silently
     _updateService.updateReady.listen((ready) {
@@ -82,13 +96,21 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
 
     final ok = await _updateService.installSilent();
     if (!ok && mounted) {
+      final allowed = await _updateService.canInstallPackages();
+      if (!mounted) return;
+      // installSilent already opened the settings screen when not allowed
+      final message = allowed
+          ? 'Update ready — tap to install'
+          : 'Allow installs from this source to update';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Update ready — tap to install'),
-          duration: const Duration(seconds: 5),
+          content: Text(message),
+          duration: const Duration(seconds: 8),
           action: SnackBarAction(
-            label: 'Install',
-            onPressed: () => _retryInstall(),
+            label: allowed ? 'Install' : 'Settings',
+            onPressed: () => allowed
+                ? _retryInstall()
+                : _updateService.openInstallSettings(),
           ),
         ),
       );
@@ -128,8 +150,120 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
 
   ParcelController get _controller => Get.find<ParcelController>();
 
+  /// Today's cash / M-Pesa taken for this location, using the same rules as the
+  /// location report: sender-paid on parcels sent today + receiver-paid on
+  /// parcels received today + receiver-paid today on parcels sent earlier.
+  Future<void> _loadTodayTotals() async {
+    if (_loadingTodayTotals) return;
+    _loadingTodayTotals = true;
+    try {
+      final candidates =
+          <String>{
+            _controller.currentLocation.trim(),
+            _controller.currentLocationCode.trim(),
+            _controller.currentLocationName.trim(),
+          }.where((s) => s.isNotEmpty).toList();
+      if (candidates.isEmpty) return;
+
+      final now = DateTime.now();
+      final from = DateTime(now.year, now.month, now.day);
+      final to = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+      final results = await Future.wait([
+        _dbHelper.getParcelsFromLocationsInRange(
+          candidates,
+          from: from,
+          to: to,
+        ),
+        _dbHelper.getParcelsToLocationsInRange(candidates, from: from, to: to),
+        _dbHelper.getParcelsPaidBetweenForLocation(
+          candidates,
+          from: from,
+          to: to,
+          sentBefore: from,
+        ),
+      ]);
+
+      double total(
+        List<Parcel> list,
+        PaymentMethod method, {
+        WhoToPay? who,
+        bool paidOnly = false,
+      }) {
+        return list
+            .where(
+              (p) =>
+                  (!paidOnly || p.Paid == true) &&
+                  p.paymentMethod == method &&
+                  (who == null || p.Who_to_Pay == who),
+            )
+            .fold<double>(0, (s, p) => s + (p.Amount_Paid ?? 0));
+      }
+
+      final sent = results[0];
+      final received = results[1];
+      final paidToday = results[2];
+
+      final cash =
+          total(sent, PaymentMethod.cash, who: WhoToPay.Sender) +
+          total(received, PaymentMethod.cash, who: WhoToPay.Receiver) +
+          total(paidToday, PaymentMethod.cash, paidOnly: true);
+      final mpesa =
+          total(sent, PaymentMethod.mpesa, who: WhoToPay.Sender) +
+          total(received, PaymentMethod.mpesa, who: WhoToPay.Receiver) +
+          total(paidToday, PaymentMethod.mpesa, paidOnly: true);
+
+      if (!mounted) return;
+      setState(() {
+        _todayCash = cash;
+        _todayMpesa = mpesa;
+      });
+    } catch (_) {
+      // Totals are informational — leave the last known values on failure.
+    } finally {
+      _loadingTodayTotals = false;
+    }
+  }
+
+  Widget _todayTotalChip(
+    String label,
+    IconData icon,
+    double amount,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              '$label ${NumberFormat('#,##0').format(amount)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _todayTotalsTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -146,6 +280,7 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
     await _controller.loadPendingBatches();
     await _controller.loadInTransitBatches();
     await _controller.loadReceivedParcels();
+    await _loadTodayTotals();
   }
 
   Future<void> _showDispatchDialog(BuildContext context, Batches batch) async {
@@ -581,6 +716,41 @@ class _ParcelDashboardPageState extends State<ParcelDashboardPage> {
                                   ),
                                 ],
                               ),
+                            ),
+                          ),
+                          // Today's takings for this location (always visible)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Tooltip(
+                                    message:
+                                        'Cash taken today for this location\n'
+                                        '(sent from here + received here + paid today)',
+                                    child: _todayTotalChip(
+                                      'Cash today',
+                                      Icons.payments_outlined,
+                                      _todayCash,
+                                      AppColors.primary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Tooltip(
+                                    message:
+                                        'M-Pesa taken today for this location\n'
+                                        '(sent from here + received here + paid today)',
+                                    child: _todayTotalChip(
+                                      'M-Pesa today',
+                                      Icons.phone_android,
+                                      _todayMpesa,
+                                      AppColors.secondary,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           AnimatedCrossFade(

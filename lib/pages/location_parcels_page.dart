@@ -118,11 +118,13 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
   }
 
   /// Groups parcels by Date_sent, sorted latest first.
+  /// The key is 'yyyy-MM-dd' so the sort is chronological — a formatted
+  /// label would sort by day-of-month and mis-order the groups.
   List<MapEntry<String, List<Parcel>>> _groupByDate(List<Parcel> parcels) {
     final map = <String, List<Parcel>>{};
     for (final p in parcels) {
       final d = p.Date_sent ?? p.Date_Created ?? DateTime.now();
-      final key = DateFormat('dd MMM yyyy').format(d);
+      final key = DateFormat('yyyy-MM-dd').format(d);
       map.putIfAbsent(key, () => <Parcel>[]).add(p);
     }
     final entries = map.entries.toList();
@@ -757,6 +759,9 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
                     itemBuilder: (ctx, i) {
                       final entry = grouped[i];
                       final dateKey = entry.key;
+                      final dateLabel = DateFormat(
+                        'dd MMM yyyy',
+                      ).format(DateTime.parse(dateKey));
                       final parcels = entry.value;
                       final paidCount =
                           parcels.where((p) => p.Paid == true).length;
@@ -770,7 +775,7 @@ class _LocationParcelsPageState extends State<LocationParcelsPage> {
                         padding: const EdgeInsets.only(bottom: 8),
                         child: _DateGroup(
                           groupKey: '$title|$dateKey',
-                          date: dateKey,
+                          date: dateLabel,
                           parcels: parcels,
                           paidCount: paidCount,
                           cashAmount: cashAmt,
@@ -1193,9 +1198,8 @@ class _CompactParcelCard extends StatelessWidget {
                       const SizedBox(width: 3),
                       Text(
                         _fmt(
-                          parcel.Time_Created ??
-                              parcel.Date_Created ??
-                              parcel.Date_sent,
+                          parcel.Date_Created ?? parcel.Date_sent,
+                          parcel.Time_Created,
                         ),
                         style: TextStyle(
                           fontSize: 10,
@@ -1249,9 +1253,22 @@ class _CompactParcelCard extends StatelessWidget {
     );
   }
 
-  String _fmt(DateTime? dt) {
-    if (dt == null) return '-';
-    return DateFormat('dd MMM HH:mm').format(dt);
+  /// Shows the created date with its time-of-day when available.
+  /// `Time_Created` normally carries a sentinel date (0001-01-01), so only its
+  /// time part is used unless it holds a real date.
+  String _fmt(DateTime? date, DateTime? time) {
+    final hasDate = date != null && date.year > 1;
+    final hasTime = time != null && time.year <= 1;
+    final timeWithRealDate = time != null && time.year > 1;
+
+    if (timeWithRealDate) return DateFormat('dd MMM HH:mm').format(time);
+    if (hasDate && hasTime) {
+      return '${DateFormat('dd MMM').format(date)} '
+          '${DateFormat('HH:mm').format(time)}';
+    }
+    if (hasDate) return DateFormat('dd MMM yyyy').format(date);
+    if (hasTime) return DateFormat('HH:mm').format(time);
+    return '-';
   }
 }
 

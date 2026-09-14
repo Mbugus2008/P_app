@@ -5,6 +5,8 @@ class AppVersionInfo {
   final String downloadUrl;
   final String? releaseNotes;
   final bool forceUpdate;
+  final int? apkSize;
+  final String? apkSha256;
 
   const AppVersionInfo({
     required this.version,
@@ -13,6 +15,8 @@ class AppVersionInfo {
     required this.downloadUrl,
     this.releaseNotes,
     this.forceUpdate = false,
+    this.apkSize,
+    this.apkSha256,
   });
 
   factory AppVersionInfo.fromJson(Map<String, dynamic> json) {
@@ -23,6 +27,8 @@ class AppVersionInfo {
       downloadUrl: (json['downloadUrl'] ?? json['DownloadUrl'] ?? '') as String,
       releaseNotes: (json['releaseNotes'] ?? json['ReleaseNotes']) as String?,
       forceUpdate: (json['forceUpdate'] ?? json['ForceUpdate'] ?? false) as bool,
+      apkSize: ((json['apkSize'] ?? json['ApkSize']) as num?)?.toInt(),
+      apkSha256: (json['apkSha256'] ?? json['ApkSha256']) as String?,
     );
   }
 }

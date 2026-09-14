@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -30,6 +31,7 @@ class AppUpdateService extends GetxService {
   String? _downloadedApkPath;
   AppVersionInfo? pendingVersion;
   Timer? _timer;
+  bool _hashMismatch = false;
 
   @override
   void onInit() {
@@ -96,10 +98,22 @@ class AppUpdateService extends GetxService {
           downloadUrl: _abiToApkFileName(downloadUrl),
           releaseNotes: c['releaseNotes'] as String?,
           forceUpdate: c['forceUpdate'] as bool? ?? false,
+          apkSize: (c['apkSize'] as num?)?.toInt(),
+          apkSha256: c['apkSha256'] as String?,
         );
 
         lastCheckMessage.value = 'Downloading v$remoteVersion...';
+        _hashMismatch = false;
         await _downloadApk();
+
+        // A reused/partial file can produce a valid-looking but corrupt APK
+        // (Android then reports "problem parsing the package"). When the
+        // published hash does not match, discard the file and fetch it fresh.
+        if (_hashMismatch) {
+          _hashMismatch = false;
+          lastCheckMessage.value = 'File check failed — re-downloading...';
+          await _downloadApk(forceFresh: true);
+        }
         return 'update_found';
       } finally {
         client.close();
@@ -112,7 +126,7 @@ class AppUpdateService extends GetxService {
     }
   }
 
-  Future<void> _downloadApk() async {
+  Future<void> _downloadApk({bool forceFresh = false}) async {
     final version = pendingVersion;
     if (version == null) return;
 
@@ -128,6 +142,10 @@ class AppUpdateService extends GetxService {
 
       final apkPath = '${apkDir.path}/parcel_v${version.versionCode}.apk';
       final file = File(apkPath);
+
+      if (forceFresh && await file.exists()) {
+        await file.delete();
+      }
 
       // Check for partial file to resume
       var resumeAt = 0;
@@ -252,12 +270,49 @@ class AppUpdateService extends GetxService {
           return;
         }
 
+        // Published size — catches a resumed/patched file that looks valid.
+        final expectedSize = version.apkSize;
+        if (expectedSize != null && expectedSize > 0 && gotSize != expectedSize) {
+          lastCheckMessage.value =
+              'File size mismatch (got $gotSize, expected $expectedSize)';
+          downloadProgress.value = -1;
+          await file.delete();
+          _hashMismatch = true;
+          return;
+        }
+
+        // Published SHA-256 — the definitive check against corrupt APKs.
+        final expectedHash = version.apkSha256?.trim().toLowerCase();
+        if (expectedHash != null && expectedHash.isNotEmpty) {
+          final actualHash = await _sha256Of(file);
+          if (actualHash != expectedHash) {
+            lastCheckMessage.value = 'File check failed (hash mismatch)';
+            downloadProgress.value = -1;
+            await file.delete();
+            _hashMismatch = true;
+            return;
+          }
+        }
+
         // ---- VERIFIED ----
         _downloadedApkPath = apkPath;
         downloadProgress.value = 1.0;
         updateReady.value = true;
         lastCheckMessage.value =
             'Download complete (${(gotSize / (1024 * 1024)).toStringAsFixed(1)} MB)';
+
+        // Remove APKs from previous versions to keep the cache small.
+        try {
+          await for (final entity in apkDir.list()) {
+            if (entity is File &&
+                entity.path != apkPath &&
+                entity.path.toLowerCase().endsWith('.apk')) {
+              await entity.delete();
+            }
+          }
+        } catch (_) {
+          // Cleanup is best-effort only.
+        }
       } finally {
         client.close();
       }
@@ -274,6 +329,12 @@ class AppUpdateService extends GetxService {
   }
 
   String? get downloadedApkPath => _downloadedApkPath;
+
+  /// SHA-256 of a file, lower-case hex (matches the published apkSha256).
+  Future<String> _sha256Of(File file) async {
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
 
   /// Install silently using PackageInstaller (skips OpenFilex dialog)
   Future<bool> installSilent() async {
@@ -308,6 +369,26 @@ class AppUpdateService extends GetxService {
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  /// True when the device allows this app to install package updates.
+  /// (Android 8+ requires the "Install unknown apps" permission.)
+  Future<bool> canInstallPackages() async {
+    try {
+      final allowed = await _channel.invokeMethod<bool>('canInstallPackages');
+      return allowed ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Opens the system "Install unknown apps" screen for this app.
+  Future<void> openInstallSettings() async {
+    try {
+      await _channel.invokeMethod('openInstallSettings');
+    } catch (_) {
+      // Settings screen unavailable — nothing else to do.
     }
   }
 }
