@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/app_version_info.dart';
+import 'Apis.dart';
 
 /// Returns the matching APK URL for the device ABI.
 /// On web, returns the universal APK.
@@ -60,7 +61,7 @@ class AppUpdateService extends GetxService {
       client.connectionTimeout = const Duration(seconds: 30);
       try {
         final req = await client.getUrl(
-          Uri.parse('https://nav.trimline.co.ke:4013/api/AppUpdate/android'),
+          Uri.parse('$kLiveApiOrigin/api/AppUpdate/android'),
         );
         final resp = await req.close().timeout(const Duration(seconds: 20));
 

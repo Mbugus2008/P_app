@@ -13,12 +13,15 @@ import 'package:trimline_parcel/models/batches.dart';
 import 'package:trimline_parcel/models/parcel_model.dart';
 import 'package:trimline_parcel/utilities/logger.dart';
 
+/// Live API origin. Single place to change when the server moves.
+const String kLiveApiOrigin = 'https://main.trimline.co.ke:4013';
+
 class ApiClient extends ChangeNotifier {
   final LoggerService logger = Get.find();
   // Auto-selects LIVE URL in release builds, emulator/localhost in debug.
   String get baseUrl =>
       kReleaseMode
-          ? "https://nav.trimline.co.ke:4013/api/Parcel/"
+          ? "$kLiveApiOrigin/api/Parcel/"
           : "http://10.0.2.2:62749/api/Parcel/";
 
   dynamic _readEnvelopeValue(Map<String, dynamic> decoded, String key) {
@@ -835,8 +838,8 @@ class ApiClient extends ChangeNotifier {
 
   /// Derives the base URL (without /api/Parcel/ suffix) for non-Parcel endpoints.
   String _baseUrlForApp() {
-    // baseUrl is like "https://nav.trimline.co.ke:4013/api/Parcel/"
-    // We need "https://nav.trimline.co.ke:4013/"
+    // baseUrl is like "https://main.trimline.co.ke:4013/api/Parcel/"
+    // We need "https://main.trimline.co.ke:4013/"
     final idx = baseUrl.indexOf('/api/');
     if (idx > 0) return baseUrl.substring(0, idx + 1);
     return baseUrl;

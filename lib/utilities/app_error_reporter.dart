@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/parcel_controller.dart';
+import 'Apis.dart';
 
 class AppErrorReporter {
   static final AppErrorReporter instance = AppErrorReporter._();
@@ -45,7 +46,7 @@ class AppErrorReporter {
       client.connectionTimeout = const Duration(seconds: 10);
 
       final request = await client.postUrl(
-        Uri.parse('https://nav.trimline.co.ke:4013/api/errors/report'),
+        Uri.parse('$kLiveApiOrigin/api/errors/report'),
       );
       request.headers.contentType = ContentType.json;
 
