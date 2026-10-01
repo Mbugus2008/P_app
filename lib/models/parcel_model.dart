@@ -51,6 +51,9 @@ class Parcel {
   double? Parcel_Value;
   DateTime? Payment_Date;
   DateTime? Payment_Time;
+  /// Server-side last modification time. Used only to advance the incremental
+  /// sync watermark (never persisted locally, never sent to the server).
+  DateTime? Last_Updated;
   List<Parcel_Details> parcelDetails;
 
   Parcel({
@@ -96,6 +99,7 @@ class Parcel {
     this.Parcel_Value,
     this.Payment_Date,
     this.Payment_Time,
+    this.Last_Updated,
     List<Parcel_Details>? parcelDetails,
   }) : parcelDetails = parcelDetails ?? <Parcel_Details>[];
 
@@ -256,6 +260,9 @@ class Parcel {
       ),
       Payment_Time: _parseTime(
         read(['Payment_Time', 'payment_Time', 'paymentTime']),
+      ),
+      Last_Updated: _parseDate(
+        read(['Last_Updated', 'last_Updated', 'lastUpdated']),
       ),
     );
   }
@@ -485,6 +492,7 @@ class Parcel {
     double? Parcel_Value,
     DateTime? Payment_Date,
     DateTime? Payment_Time,
+    DateTime? Last_Updated,
     List<Parcel_Details>? parcelDetails,
   }) {
     return Parcel(
@@ -530,6 +538,7 @@ class Parcel {
       Parcel_Value: Parcel_Value ?? this.Parcel_Value,
       Payment_Date: Payment_Date ?? this.Payment_Date,
       Payment_Time: Payment_Time ?? this.Payment_Time,
+      Last_Updated: Last_Updated ?? this.Last_Updated,
       parcelDetails: parcelDetails ?? this.parcelDetails,
     );
   }

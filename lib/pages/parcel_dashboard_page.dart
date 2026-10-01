@@ -1648,6 +1648,9 @@ class _MetricTile extends StatelessWidget {
 }
 
 String _formatBatchDateTime(Batches batch) {
+  // Dispatch/receive times are stored as the dispatcher's wall-clock (East
+  // Africa Time) even though the API appends a "Z" suffix — converting with
+  // toLocal() would shift them +3h. Display the value as-is.
   final dt = batch.dispatchDateTime ?? batch.createdAt;
   if (dt == null) return '-';
   return DateFormat('dd/MM/yy HH:mm').format(dt);
@@ -2011,6 +2014,30 @@ class _InTransitBatchCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (docNos.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.confirmation_number_outlined,
+                          size: 13,
+                          color: Colors.black54,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            docNos.join(', '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.black54,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     children: [

@@ -14,7 +14,13 @@ import 'package:trimline_parcel/models/parcel_model.dart';
 import 'package:trimline_parcel/utilities/logger.dart';
 
 /// Live API origin. Single place to change when the server moves.
-const String kLiveApiOrigin = 'https://main.trimline.co.ke:4013';
+///
+/// NOTE: kept on the `nav.` hostname on purpose. DNS for nav.trimline.co.ke
+/// already points at the new server (main.trimline.co.ke / 51.89.234.110)
+/// and that name has a valid TLS certificate on port 4013, while
+/// main.trimline.co.ke:4013 still presents the nav certificate and therefore
+/// fails Android TLS hostname validation.
+const String kLiveApiOrigin = 'https://nav.trimline.co.ke:4013';
 
 class ApiClient extends ChangeNotifier {
   final LoggerService logger = Get.find();

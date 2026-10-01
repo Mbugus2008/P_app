@@ -419,6 +419,7 @@ class ParcelController extends GetxController {
     List<Batches> pulledBatches = <Batches>[];
     var parcelsPulled = false;
     var batchesPulled = false;
+    DateTime? pendingWatermark;
 
     try {
       final unsyncedParcels = await _dbHelper.getUnsyncedParcels();
@@ -496,13 +497,27 @@ class ParcelController extends GetxController {
     }
 
     try {
-      // Incremental sync: only pull parcels updated since last successful sync
+      // Incremental sync: only pull parcels updated since the last watermark.
+      //
+      // The watermark MUST be sent as UTC with an explicit 'Z' marker. The API
+      // converts it with ToUniversalTime() and the server runs on US Pacific
+      // time, so a marker-less local time used to be interpreted as the
+      // SERVER's local time — pushing the cutoff hours into the future and
+      // silently skipping every update in that window.
       final locCode = currentLocationCode.trim();
       if (locCode.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
         final lastSyncedStr = prefs.getString('lastSyncedAt');
-        final lastSyncedAt =
+        var lastSyncedAt =
             lastSyncedStr != null ? DateTime.tryParse(lastSyncedStr) : null;
+
+        // One-time migration: values stored by older builds have no timezone
+        // marker and were the cause of the skipped pulls. Drop them so the
+        // next pull is a full one, then a proper watermark is stored again.
+        if (lastSyncedAt != null && !lastSyncedAt.isUtc) {
+          await prefs.remove('lastSyncedAt');
+          lastSyncedAt = null;
+        }
 
         pulledParcels = await _apiClient.fetchParcelsForSync(
           locCode,
@@ -511,8 +526,15 @@ class ParcelController extends GetxController {
         parcelsPulled = true;
         summary.pulledParcels = pulledParcels.length;
 
-        // Save sync timestamp after successful pull
-        await prefs.setString('lastSyncedAt', DateTime.now().toIso8601String());
+        // Next watermark = newest Last_Updated actually received. Never the
+        // device clock, and never advanced when nothing came back.
+        for (final parcel in pulledParcels) {
+          final updated = parcel.Last_Updated?.toUtc();
+          if (updated == null) continue;
+          if (pendingWatermark == null || updated.isAfter(pendingWatermark!)) {
+            pendingWatermark = updated;
+          }
+        }
       }
     } catch (e) {
       summary.failedParcels++;
@@ -559,6 +581,16 @@ class ParcelController extends GetxController {
       await _dbHelper.upsertParcels(parcelsToSave);
       // Let the UI breathe after a heavy DB write
       await Future<void>.delayed(Duration.zero);
+
+      // Persist the sync watermark only AFTER the pulled parcels reached the
+      // local database, so a crash or write failure can never skip the window.
+      if (pendingWatermark != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          'lastSyncedAt',
+          pendingWatermark!.toUtc().toIso8601String(),
+        );
+      }
 
       // NOTE: deleteOrphanParcels is disabled — it can delete valid parcels
       // that are simply not on the current pull page due to pagination or
@@ -849,103 +881,97 @@ class ParcelController extends GetxController {
     _receivingBatches.add(batchNo);
     try {
       final location = _currentLocation.value.trim();
+      final docNos =
+          batch.parcelDocumentNos
+              .map((docNo) => docNo.trim())
+              .where((docNo) => docNo.isNotEmpty)
+              .toList();
 
-      // 1. Update all parcels in batch to received
-      final smsMessages = <Map<String, String>>[];
-      final skippedDocs = <String>[];
-      var receivedCount = 0;
-      for (final docNo in batch.parcelDocumentNos) {
-        if (docNo.trim().isEmpty) continue;
+      // 1. Resolve EVERY parcel first. Nothing is changed unless all of them
+      //    can be pulled — a parcel created on another device may not be in
+      //    the local database yet, so fetch it (with retries) before
+      //    receiving anything.
+      final parcels = <Parcel>[];
+      final missingDocs = <String>[];
+      for (final docNo in docNos) {
         var parcel = await _dbHelper.getParcel(docNo);
-
-        // Parcel may not exist on this device (created on another device).
-        // Pull it from the backend so it can be received and notified.
+        parcel ??= await _fetchParcelForReceive(docNo);
         if (parcel == null) {
-          try {
-            final remote = await _apiClient.fetchParcelByDocumentNo(docNo);
-            if (remote != null) {
-              await _dbHelper.upsertParcels([remote]);
-              parcel = remote;
-            } else {
-              skippedDocs.add(docNo);
-              if (kDebugMode) {
-                debugPrint('Parcel $docNo not found on backend');
-              }
-              continue;
-            }
-          } catch (e) {
-            skippedDocs.add(docNo);
-            if (kDebugMode) {
-              debugPrint('Failed to fetch parcel $docNo for receive: $e');
-            }
-            continue;
-          }
-        }
-
-        if (parcel != null && parcel.Status != ParcelStatus.received) {
-          // Generate a 5-digit OTP for collection
-          final otp =
-              (10000 + (DateTime.now().millisecondsSinceEpoch % 90000))
-                  .toString();
-
-          // Mark unsynced first so a concurrent pull cannot revert this change
-          // before it is pushed to the backend.
-          final updated = parcel.copyWith(
-            Status: ParcelStatus.received,
-            Date_Delivered: DateTime.now(),
-            Time_Delivered: DateTime.now(),
-            isSynced: false,
-            Receiver_Code: otp,
-          );
-          await _dbHelper.updateParcel(updated);
-          receivedCount++;
-
-          // Push immediately; on failure the sync cycle retries while the
-          // parcel stays unsynced (and protected from pull overwrites).
-          try {
-            await _apiClient.updateParcel(updated);
-            await _dbHelper.updateParcel(updated.copyWith(isSynced: true));
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('Backend sync failed for parcel receive: $e');
-            }
-          }
-
-          // Compose SMS
-          final phone = parcel.Receiver_Phone?.trim() ?? '';
-          if (phone.isNotEmpty) {
-            final name = parcel.Receiver_Name?.trim() ?? 'Customer';
-            final sender = parcel.Sender_Name?.trim() ?? 'Unknown Sender';
-            final doc = parcel.Document_No ?? '';
-            final amount = parcel.Amount_Paid ?? 0;
-            final isPaid = parcel.Paid == true;
-            final msg =
-                isPaid
-                    ? 'Hello $name, your Parcel $doc from $sender has arrived at $location. COLLECTION CODE: $otp. Please come and collect it. Thank you. REMBO CLASSIC'
-                    : 'Hello $name, your Parcel $doc from $sender has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. COLLECTION CODE: $otp. Please pay before collection. Thank you. REMBO CLASSIC';
-            smsMessages.add({
-              'Phone': phone,
-              'Message': msg,
-              'DocumentNo': doc,
-            });
-          }
+          missingDocs.add(docNo);
+        } else if (parcel.Status != ParcelStatus.received) {
+          parcels.add(parcel);
         }
       }
 
-      // 2. Mark batch as received and dirty so sync pushes it
+      // Fail loudly instead of silently receiving a partial batch: a skipped
+      // parcel used to stay "In Transit" on NAV forever with no collection
+      // code, while its batch still showed as received.
+      if (missingDocs.isNotEmpty) {
+        _showSnack(
+          'Batch not received',
+          'Could not pull ${missingDocs.length} of ${docNos.length} parcel(s): '
+              '${missingDocs.join(', ')}. Nothing was changed — check the '
+              'connection and try again.',
+        );
+        return;
+      }
+
+      // 2. Mark all parcels received (unsynced first so a concurrent pull
+      //    cannot revert them before they are pushed).
+      final smsMessages = <Map<String, String>>[];
+      var receivedCount = 0;
+      for (final parcel in parcels) {
+        // Generate a 5-digit OTP for collection
+        final otp =
+            (10000 + (DateTime.now().millisecondsSinceEpoch % 90000))
+                .toString();
+
+        final updated = parcel.copyWith(
+          Status: ParcelStatus.received,
+          Date_Delivered: DateTime.now(),
+          Time_Delivered: DateTime.now(),
+          isSynced: false,
+          Receiver_Code: otp,
+        );
+        await _dbHelper.updateParcel(updated);
+        receivedCount++;
+
+        // Push immediately; on failure the sync cycle retries while the
+        // parcel stays unsynced (and protected from pull overwrites).
+        try {
+          await _apiClient.updateParcel(updated);
+          await _dbHelper.updateParcel(updated.copyWith(isSynced: true));
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Backend sync failed for parcel receive: $e');
+          }
+        }
+
+        // Compose SMS
+        final phone = parcel.Receiver_Phone?.trim() ?? '';
+        if (phone.isNotEmpty) {
+          final name = parcel.Receiver_Name?.trim() ?? 'Customer';
+          final sender = parcel.Sender_Name?.trim() ?? 'Unknown Sender';
+          final doc = parcel.Document_No ?? '';
+          final amount = parcel.Amount_Paid ?? 0;
+          final isPaid = parcel.Paid == true;
+          final msg =
+              isPaid
+                  ? 'Hello $name, your Parcel $doc from $sender has arrived at $location. COLLECTION CODE: $otp. Please come and collect it. Thank you. REMBO CLASSIC'
+                  : 'Hello $name, your Parcel $doc from $sender has arrived at $location. Amount due: KES ${amount.toStringAsFixed(0)}. COLLECTION CODE: $otp. Please pay before collection. Thank you. REMBO CLASSIC';
+          smsMessages.add({'Phone': phone, 'Message': msg, 'DocumentNo': doc});
+        }
+      }
+
+      // 3. Mark batch as received and dirty so sync pushes it. This only
+      //    happens once every parcel above has been resolved.
       batch.status = BatchStatus.received;
       batch.receivedDateTime = DateTime.now();
       batch.updatedAt = DateTime.now();
       batch.isSynced = false;
       await _dbHelper.updateBatch(batch);
-      if (skippedDocs.isNotEmpty && kDebugMode) {
-        debugPrint(
-          'Batch ${batch.batchNo} received (${receivedCount} parcels). '
-          'Skipped docs not found: $skippedDocs',
-        );
-      }
 
-      // 3. Send bulk SMS
+      // 4. Send bulk SMS
       if (smsMessages.isNotEmpty) {
         try {
           await _apiClient.sendBulkSms(smsMessages);
@@ -959,40 +985,53 @@ class ParcelController extends GetxController {
         }
       }
 
-      // 4. Sync batch to backend (only if received)
-      if (skippedDocs.isEmpty) {
-        try {
-          await _apiClient.updateBatch(batch);
-          batch.isSynced = true;
-          await _dbHelper.updateBatch(batch);
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('Backend sync failed for batch receive: $e');
-          }
+      // 5. Sync batch to backend
+      try {
+        await _apiClient.updateBatch(batch);
+        batch.isSynced = true;
+        await _dbHelper.updateBatch(batch);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Backend sync failed for batch receive: $e');
         }
       }
 
       await loadParcels();
       await loadInTransitBatches();
       await loadReceivedParcels();
-      if (skippedDocs.isNotEmpty) {
-        _showSnack(
-          'Warning',
-          'Processed $receivedCount of ${batch.parcelDocumentNos.where((d) => d.trim().isNotEmpty).length} parcels. '
-              'Not found: ${skippedDocs.join(', ')}. They will be retried on next sync.',
-        );
-      } else {
-        _showSnack(
-          'Received',
-          'Batch ${batch.batchNo ?? ''} has been received.',
-        );
-      }
+      _showSnack(
+        'Received',
+        'Batch $batchNo has been received'
+            '${receivedCount > 0 ? ' ($receivedCount parcel(s))' : ''}.',
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('Error receiving batch: $e');
       _showSnack('Error', 'Failed to receive batch. Please try again.');
     } finally {
       _receivingBatches.remove(batchNo);
     }
+  }
+
+  /// Pulls a single parcel from the backend with a few retries. Used by the
+  /// batch-receive flow for parcels created on other devices.
+  Future<Parcel?> _fetchParcelForReceive(String docNo) async {
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final remote = await _apiClient.fetchParcelByDocumentNo(docNo);
+        if (remote != null) {
+          await _dbHelper.upsertParcels([remote]);
+          return remote;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('Fetch parcel $docNo attempt $attempt failed: $e');
+        }
+      }
+      if (attempt < 3) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      }
+    }
+    return null;
   }
 
   Future<void> collectParcel(

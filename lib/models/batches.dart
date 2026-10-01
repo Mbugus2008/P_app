@@ -160,6 +160,11 @@ class Batches {
       'To_Location': toLocation ?? destinationLocation,
       'Vehicle': vehicle,
       'Driver': driver,
+      // NAV field names (the API binds these directly to the NAV batch DTO).
+      'Dispatch_Date_Time': dispatchDateTime?.toIso8601String(),
+      'Received_Date_Time': receivedDateTime?.toIso8601String(),
+      // Legacy spellings: older API builds looked for these, and the current
+      // API simply ignores unknown keys, so both are sent for compatibility.
       'Dispatch_DateTime': dispatchDateTime?.toIso8601String(),
       'Received_DateTime': receivedDateTime?.toIso8601String(),
       'Created_At': createdAt?.toIso8601String(),
@@ -240,10 +245,21 @@ class Batches {
       vehicle: read(['Vehicle', 'vehicle']) as String?,
       driver: read(['Driver', 'driver']) as String?,
       dispatchDateTime: _parseDate(
-        read(['Dispatch_DateTime', 'dispatch_Date_Time', 'dispatchDateTime']),
+        read([
+          // 'nav/batches' returns the NAV property names (PascalCase)
+          'Dispatch_Date_Time',
+          'Dispatch_DateTime',
+          'dispatch_Date_Time',
+          'dispatchDateTime',
+        ]),
       ),
       receivedDateTime: _parseDate(
-        read(['Received_DateTime', 'received_Date_Time', 'receivedDateTime']),
+        read([
+          'Received_Date_Time',
+          'Received_DateTime',
+          'received_Date_Time',
+          'receivedDateTime',
+        ]),
       ),
       createdAt: _parseDate(read(['Created_At', 'created_At', 'createdAt'])),
       updatedAt: _parseDate(read(['Updated_At', 'updated_At', 'updatedAt'])),
