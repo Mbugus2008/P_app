@@ -443,7 +443,8 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
   }
 
   Future<void> _handlePrintReceipt() async {
-    if (controller.parcel == null) {
+    final docNo = controller.documentNoController.text.trim();
+    if (docNo.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No parcel data to print'),
@@ -453,7 +454,15 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
       return;
     }
 
-    // Mark as printed when the print dialog is opened
+    // Print what the FORM currently shows. Printing used to re-use the parcel
+    // object loaded when the page was opened, so an edited parcel printed the
+    // previous customer's details.
+    final existing = await _dbHelper.getParcel(docNo);
+    if (!mounted) return;
+    controller.parcel = _buildParcelFromForm(existing);
+
+    // Mark as printed when the print dialog is opened; this also persists the
+    // current form values so the receipt and the system data stay consistent.
     if (!controller.parcel!.receiptPrinted) {
       setState(() {
         controller.parcel!.receiptPrinted = true;
@@ -1161,48 +1170,60 @@ class _AddEditParcelPageState extends State<AddEditParcelPage> {
     });
   }
 
+  /// Builds the parcel from the CURRENT form values.
+  /// Used by both save and print, so a print always reflects what the user
+  /// last entered — editing a parcel to another customer must never print the
+  /// previous customer's details.
+  Parcel _buildParcelFromForm(Parcel? dbExisting) {
+    return Parcel(
+      Document_No: controller.documentNoController.text,
+      Date_sent: controller.selectedDate,
+      Sender_Name: controller.senderNameController.text,
+      Sender_ID: controller.senderIdController.text,
+      Sender_Phone: controller.senderPhoneController.text,
+      From: controller.fromController.text,
+      To: controller.toController.text,
+      Receiver_Name: controller.receiverNameController.text,
+      Receiver_ID: controller.receiverIdController.text,
+      Receiver_Phone: controller.receiverPhoneController.text,
+      Status: controller.selectedStatus,
+      Driver: controller.driverController.text,
+      Vehicle: controller.vehicleController.text,
+      Who_to_Pay: controller.paymentResponsibility,
+      Amount_Paid:
+          double.tryParse(controller.amountPaidController.text) ?? 0.0,
+      Paid: controller.paid,
+      paymentMethod: controller.paymentMethod,
+      mpesaCode: controller.mpesaCodeController.text.trim(),
+      Batch_No: dbExisting?.Batch_No,
+      Date_Collected: controller.parcel?.Date_Collected,
+      Date_Delivered: controller.parcel?.Date_Delivered,
+      Payment_Date: controller.parcel?.Payment_Date,
+      Payment_Time: controller.parcel?.Payment_Time,
+      Details: controller.parcel?.Details,
+      Parcel_Value: controller.parcel?.Parcel_Value,
+      deviceId: controller.parcel?.deviceId ?? dbExisting?.deviceId,
+      Payment_Received_By:
+          controller.parcel?.Payment_Received_By ??
+          dbExisting?.Payment_Received_By,
+      parcelDetails: controller.parcel?.parcelDetails,
+    );
+  }
+
   Future<void> _submitForm() async {
     try {
       final existing = await _dbHelper.getParcel(
         controller.documentNoController.text,
       );
 
-      final parcel = Parcel(
-        Document_No: controller.documentNoController.text,
-        Date_sent: controller.selectedDate,
-        Sender_Name: controller.senderNameController.text,
-        Sender_ID: controller.senderIdController.text,
-        Sender_Phone: controller.senderPhoneController.text,
-        From: controller.fromController.text,
-        To: controller.toController.text,
-        Receiver_Name: controller.receiverNameController.text,
-        Receiver_ID: controller.receiverIdController.text,
-        Receiver_Phone: controller.receiverPhoneController.text,
-        Status: controller.selectedStatus,
-        Driver: controller.driverController.text,
-        Vehicle: controller.vehicleController.text,
-        Who_to_Pay: controller.paymentResponsibility,
-        Amount_Paid:
-            double.tryParse(controller.amountPaidController.text) ?? 0.0,
-        Paid: controller.paid,
-        paymentMethod: controller.paymentMethod,
-        mpesaCode: controller.mpesaCodeController.text.trim(),
-        Batch_No: existing?.Batch_No,
-        Date_Collected: controller.parcel?.Date_Collected,
-        Date_Delivered: controller.parcel?.Date_Delivered,
-        Payment_Date: controller.parcel?.Payment_Date,
-        Payment_Time: controller.parcel?.Payment_Time,
-        Details: controller.parcel?.Details,
-        Parcel_Value: controller.parcel?.Parcel_Value,
-        deviceId: controller.parcel?.deviceId ?? existing?.deviceId,
-        Payment_Received_By:
-            controller.parcel?.Payment_Received_By ??
-            existing?.Payment_Received_By,
-        parcelDetails: controller.parcel?.parcelDetails,
-      );
+      final parcel = _buildParcelFromForm(existing);
 
       if (existing != null) {
         await controller.updateParcel(parcel);
+        // Keep the controller in sync with the saved values so anything that
+        // reads controller.parcel afterwards (printing, payment flow) sees the
+        // edited customer details, not the ones loaded when the page opened.
+        controller.parcel = parcel;
         _hasSavedParcel = true;
         _isEditingMode = true;
         _showSnackBar('Success', 'Parcel updated successfully!');

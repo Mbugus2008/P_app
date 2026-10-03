@@ -95,6 +95,16 @@ class ThermalReceiptPrinter {
     return lines.isEmpty ? [text] : lines;
   }
 
+  // The parcel's actual route (From => To), never a fixed one.
+  static String _routeValue(Parcel parcel) {
+    final from = parcel.From?.trim() ?? '';
+    final to = parcel.To?.trim() ?? '';
+    if (from.isEmpty && to.isEmpty) return '-';
+    if (from.isEmpty) return to;
+    if (to.isEmpty) return from;
+    return '$from => $to';
+  }
+
   Future<void> printParcelReceipt(Parcel parcel) async {
     final isConnected = await this.isConnected();
     if (!isConnected) {
@@ -125,7 +135,9 @@ class ThermalReceiptPrinter {
     _printer.printCustom(_divider, 0, 1);
 
     // Route and parties
-    _printer.printCustom(_labelValue('ROUTE:', 'KITENGELA => NAIROBI'), 0, 0);
+    for (final line in _wrapText('ROUTE: ${_routeValue(parcel)}')) {
+      _printer.printCustom(line, 0, 0);
+    }
     _printer.printCustom(
       _labelValue(
         'SENDER:',
@@ -260,7 +272,9 @@ class ThermalReceiptPrinter {
     _printer.printCustom(_divider, 0, 1);
 
     // Route
-    _printer.printCustom(_labelValue('ROUTE:', 'KITENGELA => NAIROBI'), 0, 0);
+    for (final line in _wrapText('ROUTE: ${_routeValue(parcel)}')) {
+      _printer.printCustom(line, 0, 0);
+    }
     _printer.printCustom(_divider, 0, 1);
 
     // Parties

@@ -1791,6 +1791,28 @@ class _InTransitBatchCard extends StatelessWidget {
                               Row(
                                 children: [
                                   Icon(
+                                    Icons.confirmation_number_outlined,
+                                    size: 12,
+                                    color: color,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      parcel.Document_No ?? '-',
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Icon(
                                     Icons.place_outlined,
                                     size: 12,
                                     color: color,
@@ -2014,30 +2036,6 @@ class _InTransitBatchCard extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (docNos.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.confirmation_number_outlined,
-                          size: 13,
-                          color: Colors.black54,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            docNos.join(', '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
                   const SizedBox(height: 4),
                   Row(
                     children: [
